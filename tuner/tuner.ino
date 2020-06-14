@@ -39,49 +39,89 @@ byte ampThreshold = 14;//raise if you have a very noisy signal
 const int MID_POINT = 114;
 
 
-void setup(){
-  Serial.begin(115200);
-  
-  cli();//diable interrupts
-  
-  //set up continuous sampling of analog pin 0 at 38.5kHz
- 
-  //clear ADCSRA and ADCSRB registers
-  ADCSRA = 0;
-  ADCSRB = 0;
-  
-  ADMUX |= (1 << REFS0); //set reference voltage
-  ADMUX |= (1 << ADLAR); //left align the ADC value- so we can read highest 8 bits from ADCH register only
-  
-  ADCSRA |= (1 << ADPS2) | (1 << ADPS0); //set ADC clock with 32 prescaler- 16mHz/32=500kHz
-  ADCSRA |= (1 << ADATE); //enabble auto trigger
-  ADCSRA |= (1 << ADIE); //enable interrupts when measurement complete
-  ADCSRA |= (1 << ADEN); //enable ADC
-  ADCSRA |= (1 << ADSC); //start ADC measurements
-  
-  sei();//enable interrupts
-}
-
 // DISPLAY -----------------------------------------------------------------------------------------------------
 
-public class Display {
-  public void Display(int midPin, int upPin, int upRPin, int downRPin,
-                      int downPin, int downLPin, int UpLPin) {
-    pinMode(midPin, OUTPUT);
-    pinMode(upPin, OUTPUT);
-    pinMode(upRPin, OUTPUT);
-    pinMode(downRPin, OUTPUT);
-    pinMode(downPin, OUTPUT);
-    pinMode(downLPin, OUTPUT);
-    pinMode(UpLPin, OUTPUT);
-  }
+typedef enum {
+  mid = 0,
+  up = 1,
+  upR = 2,
+  downR = 3,
+  down = 4,
+  downL = 5,
+  upL = 6,
+} DisplBarName;
 
-  public void do() {
-    
-  }
+typedef DisplBarName DBN;
+
+class Display {
+  public:
+    Display(int midPin, int upPin, int upRPin, int downRPin,
+                        int downPin, int downLPin, int UpLPin); 
+    void clean();
+    void do_sth1();
+    void do_sth2();
+    void light(unsigned int instruction);
+
+  private:
+    int pin_array[7];
+};
+
+Display::Display(int midPin, int upPin, int upRPin, int downRPin,
+                        int downPin, int downLPin, int UpLPin) {
+  pinMode(midPin, OUTPUT);
+  pinMode(upPin, OUTPUT);
+  pinMode(upRPin, OUTPUT);
+  pinMode(downRPin, OUTPUT);
+  pinMode(downPin, OUTPUT);
+  pinMode(downLPin, OUTPUT);
+  pinMode(UpLPin, OUTPUT);
+  
+  this->pin_array[0] = midPin;
+  this->pin_array[1] = upPin;
+  this->pin_array[2] = upRPin;
+  this->pin_array[3] = downRPin;
+  this->pin_array[4] = downPin;
+  this->pin_array[5] = downLPin;
+  this->pin_array[6] = UpLPin;
+
+  this->clean();
 }
 
-// END DISPLAY
+void Display::clean() {
+  digitalWrite(this->pin_array[0], LOW);
+  digitalWrite(this->pin_array[1], LOW);
+  digitalWrite(this->pin_array[2], LOW);
+  digitalWrite(this->pin_array[3], LOW);
+  digitalWrite(this->pin_array[4], LOW);
+  digitalWrite(this->pin_array[5], LOW);
+  digitalWrite(this->pin_array[6], LOW);
+}
+
+void Display::do_sth1() {
+  this->clean();
+  
+  digitalWrite(this->pin_array[DBN::mid], HIGH);
+  digitalWrite(this->pin_array[DBN::up], HIGH);
+  digitalWrite(this->pin_array[DBN::down], HIGH);
+}
+
+void Display::do_sth2() {
+  this->clean();
+  
+  digitalWrite(this->pin_array[DBN::upR], HIGH);
+  digitalWrite(this->pin_array[DBN::downR], HIGH);
+  digitalWrite(this->pin_array[DBN::upL], HIGH);
+  digitalWrite(this->pin_array[DBN::downL], HIGH);
+}
+
+void Display::light(unsigned int instruction) {
+  
+}
+
+Display* displ;
+
+// END DISPLAY -----------------------------------------------------------------------------------------------------
+
 
 // NOTES -------------------------------------------------------------------------------------------------------
 typedef struct {
@@ -211,13 +251,38 @@ Octave octaves[] = {
 };
 
 
-// END NOTES  --------------------------------------------------------------------------------------------------------------
+// END FREQUENCIES --------------------------------------------------------------------------------------------------------------
 
+
+void setup(){
+  Serial.begin(115200);
+
+  displ = new Display(3, 6, 7, 8, 5, 4, 2);
+  
+  cli();//diable interrupts
+  
+  //set up continuous sampling of analog pin 0 at 38.5kHz
+ 
+  //clear ADCSRA and ADCSRB registers
+  ADCSRA = 0;
+  ADCSRB = 0;
+  
+  ADMUX |= (1 << REFS0); //set reference voltage
+  ADMUX |= (1 << ADLAR); //left align the ADC value- so we can read highest 8 bits from ADCH register only
+  
+  ADCSRA |= (1 << ADPS2) | (1 << ADPS0); //set ADC clock with 32 prescaler- 16mHz/32=500kHz
+  ADCSRA |= (1 << ADATE); //enabble auto trigger
+  ADCSRA |= (1 << ADIE); //enable interrupts when measurement complete
+  ADCSRA |= (1 << ADEN); //enable ADC
+  ADCSRA |= (1 << ADSC); //start ADC measurements
+  
+  sei();//enable interrupts
+}
 
 // PHYSICS ----------------------------------------------------------------------------------------------------
 
 ISR(ADC_vect) {//when new ADC value ready
-  return; /////////////////////////////////// UNCOMMENT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  return; /////////////////////////////////// COMMENT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   PORTB &= B11101111;//set pin 12 low
   prevData = newData;//store previous value
   newData = ADCH;//get value from A0
@@ -358,43 +423,48 @@ float get_freq_av() {
   return sum/(float)FREQ_AR_LEN;
 }
 
-//void debug() {
-//  
-//  for (int octave_i = 0; octave_i < 5; octave_i++) {
-//    const Octave& octave = octaves[octave_i];
-//    for (int note_i = 0; note_i < NOTES_AMOUNT; note_i++) {
-//      const Note& note = octave.notes[note_i];
-//      Serial.println("Octave: " + (String)octave.index + " note: " + note.note + " freq: " + (String)note.freq);
-//    }
-//  }
-//}
-
-void loop(){
-  checkClipping();
+void debug() {
   
-  if (checkMaxAmp>ampThreshold){
-    frequency = 38462.0/float(period);//calculate frequency timer rate/period
-    frequency+=1.f;
-    if (isFreqLegal(frequency)) {
-      last_frequencies[freq_ar_i++] = frequency;
-      if (freq_ar_i >= FREQ_AR_LEN) freq_ar_i = 0;
-
-      // Ignore noise and big swings
-      float average_freq = get_freq_av();
-      float diff = abs(average_freq - frequency);
-      float max_diff = average_freq * FREQ_MAX_DIFF;
-      if (diff < max_diff){
-        const Note& note = getNote(frequency);
-        Serial.print(frequency);
-        Serial.print(" hz - maps to note: ");
-        Serial.print(getNoteName(note));
-        Serial.println();
-      }
+  for (int octave_i = 0; octave_i < 5; octave_i++) {
+    const Octave& octave = octaves[octave_i];
+    for (int note_i = 0; note_i < NOTES_AMOUNT; note_i++) {
+      const Note& note = octave.notes[note_i];
+      Serial.println("Octave: " + (String)octave.index + " note: " + note.note + " freq: " + (String)note.freq);
     }
   }
-  
+}
 
+void loop(){
+//  checkClipping();
+//  
+//  if (checkMaxAmp>ampThreshold){
+//    frequency = 38462.0/float(period);//calculate frequency timer rate/period
+//    frequency+=1.f;
+//    if (isFreqLegal(frequency)) {
+//      last_frequencies[freq_ar_i++] = frequency;
+//      if (freq_ar_i >= FREQ_AR_LEN) freq_ar_i = 0;
+//
+//      // Ignore noise and big swings
+//      float average_freq = get_freq_av();
+//      float diff = abs(average_freq - frequency);
+//      float max_diff = average_freq * FREQ_MAX_DIFF;
+//      if (diff < max_diff){
+//        const Note& note = getNote(frequency);
+//        Serial.print(frequency);
+//        Serial.print(" hz - maps to note: ");
+//        //Serial.print(getNoteName(note));
+//        Serial.print(note.note);
+//        if (note.sharp) Serial.print("#");
+//        Serial.println();
+//      }
+//    }
+//  }
+//  delay(10);
 
-  delay(10);
+  displ->do_sth1();
+  delay(1500);
+  displ->do_sth2();
+  delay(1500);
+
   
 }
