@@ -181,15 +181,18 @@ class Display {
     void clean();
     void do_sth1();
     void do_sth2();
-    void light(DI instruction);
-    void light(unsigned int instruction);
+    void light(DI instruction, bool sharp);
+    void light(unsigned int instruction, bool sharp);
+    void lightSharp(bool light);
     void write(DBN pin);
     void write(unsigned int pin);
+    void displayNote(const Note& note);
 
   private:
     int pin_array[7];
     unsigned int currentlyDisplaying = 0;
     int sharpPin;
+    bool currentSharpPinStatus = false;
 };
 
 Display::Display(int midPin, int upPin, int upRPin, int downRPin,
@@ -210,7 +213,7 @@ Display::Display(int midPin, int upPin, int upRPin, int downRPin,
   this->pin_array[4] = downPin;
   this->pin_array[5] = downLPin;
   this->pin_array[6] = UpLPin;
-  this->sharpPin = UpLPin;
+  this->sharpPin = sharpPin;
 
   this->clean();
 }
@@ -251,14 +254,16 @@ void Display::write(unsigned int pin) {
   digitalWrite(this->pin_array[pin], HIGH);
 }
 
-void Display::light(DI instruction) {
-  this->light(static_cast<unsigned int>(instruction));
+void Display::light(DI instruction, bool sharp) {
+  this->light(static_cast<unsigned int>(instruction), sharp);
 }
 
-void Display::light(unsigned int instruction) {
-  if (instruction == this->currentlyDisplaying) return;
+void Display::light(unsigned int instruction, bool sharp) {
+  if (instruction == this->currentlyDisplaying && sharp == currentSharpPinStatus) return;
   
   this->clean();
+
+  this->lightSharp(sharp);
 
   if (instruction & (1 << DBN::mid)) {
     this->write(DBN::mid);
@@ -281,8 +286,46 @@ void Display::light(unsigned int instruction) {
   if (instruction & (1 << DBN::upL)) {
     this->write(DBN::upL);
   }
-
+  
   this->currentlyDisplaying = instruction;
+}
+
+void Display::lightSharp(bool light) {
+  if (light) {
+    digitalWrite (this->sharpPin, HIGH);
+  } else {
+    digitalWrite (this->sharpPin, LOW);
+  }
+  this->currentSharpPinStatus = light;
+}
+
+void Display::displayNote(const Note& note) {
+  DI di = DI::A;
+  switch(note.note) {
+    case 'A':
+      di = DI::A;
+      break;
+    case 'B':
+      di = DI::B;
+      break;
+    case 'C':
+      di = DI::C;
+      break;
+    case 'D':
+      di = DI::D;
+      break;
+    case 'E':
+      di = DI::E;
+      break;
+    case 'F':
+      di = DI::F;
+      break;
+    case 'G':
+      di = DI::G;
+      break;
+  }
+  
+  this->light(di, note.sharp);
 }
 
 Display* displ;
@@ -350,7 +393,6 @@ const int MID_POINT = 127; //2.5V
 
 ISR(ADC_vect) {//when new ADC value ready
   //return; /////////////////////////////////// COMMENT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  PORTB &= B11101111;//set pin 12 low
   prevData = newData;//store previous value
   newData = ADCH;//get value from A0
 
@@ -368,7 +410,6 @@ ISR(ADC_vect) {//when new ADC value ready
       time = 0;
       if (index == 0){//new max slope just reset
         //Serial.println("I AM HER1 ");
-        PORTB |= B00010000;//set pin 12 high
         noMatch = 0;
         index++;//increment index
       }
@@ -384,7 +425,6 @@ ISR(ADC_vect) {//when new ADC value ready
         timer[0] = timer[index];
         slope[0] = slope[index];
         index = 1;//set index to 1
-        PORTB |= B00010000;//set pin 12 high
         noMatch = 0;
       }
       else{//crossing midpoint but not match
@@ -500,35 +540,6 @@ void debug() {
   }
 }
 
-void displayNote(char letter) {
-  DI di = DI::A;
-  switch(letter) {
-    case 'A':
-      di = DI::A;
-      break;
-    case 'B':
-      di = DI::B;
-      break;
-    case 'C':
-      di = DI::C;
-      break;
-    case 'D':
-      di = DI::D;
-      break;
-    case 'E':
-      di = DI::E;
-      break;
-    case 'F':
-      di = DI::F;
-      break;
-    case 'G':
-      di = DI::G;
-      break;
-  }
-
-  displ->light(di);
-}
-
 void loop(){
   checkClipping();
 
@@ -552,7 +563,7 @@ void loop(){
         if (note.sharp) Serial.print("#");
         Serial.println();
 
-        displayNote(note.note);
+        displ->displayNote(note);
       }
     }
   }
