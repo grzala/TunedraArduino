@@ -79,7 +79,7 @@ typedef DisplInstruction DI;
 class Display {
   public:
     Display(int midPin, int upPin, int upRPin, int downRPin,
-                        int downPin, int downLPin, int UpLPin); 
+                        int downPin, int downLPin, int UpLPin, int sharpPin); 
     void clean();
     void do_sth1();
     void do_sth2();
@@ -91,10 +91,11 @@ class Display {
   private:
     int pin_array[7];
     unsigned int currentlyDisplaying = 0;
+    int sharpPin;
 };
 
 Display::Display(int midPin, int upPin, int upRPin, int downRPin,
-                        int downPin, int downLPin, int UpLPin) {
+                 int downPin, int downLPin, int UpLPin, int sharpPin) {
   pinMode(midPin, OUTPUT);
   pinMode(upPin, OUTPUT);
   pinMode(upRPin, OUTPUT);
@@ -102,6 +103,7 @@ Display::Display(int midPin, int upPin, int upRPin, int downRPin,
   pinMode(downPin, OUTPUT);
   pinMode(downLPin, OUTPUT);
   pinMode(UpLPin, OUTPUT);
+  pinMode(sharpPin, OUTPUT);
   
   this->pin_array[0] = midPin;
   this->pin_array[1] = upPin;
@@ -110,6 +112,7 @@ Display::Display(int midPin, int upPin, int upRPin, int downRPin,
   this->pin_array[4] = downPin;
   this->pin_array[5] = downLPin;
   this->pin_array[6] = UpLPin;
+  this->sharpPin = UpLPin;
 
   this->clean();
 }
@@ -122,6 +125,7 @@ void Display::clean() {
   digitalWrite(this->pin_array[4], LOW);
   digitalWrite(this->pin_array[5], LOW);
   digitalWrite(this->pin_array[6], LOW);
+  digitalWrite(this->sharpPin, LOW);
 }
 
 void Display::do_sth1() {
@@ -211,7 +215,7 @@ typedef struct {
   Note notes[12];
 } Octave;
 
-Octave octave0 = {
+const PROGMEM Octave octave0 = {
   0,
   31.385f,
   {
@@ -230,7 +234,7 @@ Octave octave0 = {
   }
 };
 
-Octave octave1 = {
+const PROGMEM Octave octave1 = {
   1,
   63.535f,
   {
@@ -249,7 +253,7 @@ Octave octave1 = {
   }
 };
 
-Octave octave2 = {
+const PROGMEM Octave octave2 = {
   2,
   127.14f,
   {
@@ -268,7 +272,7 @@ Octave octave2 = {
   }
 };
 
-Octave octave3 = {
+const PROGMEM Octave octave3 = {
   3,
   254.285f,
   {
@@ -287,7 +291,7 @@ Octave octave3 = {
   }
 };
 
-Octave octave4 = {
+const PROGMEM Octave octave4 = {
   4,
   508.565f,
   {
@@ -307,7 +311,7 @@ Octave octave4 = {
 };
 
 // Sorted octaves array
-Octave octaves[] = {
+const PROGMEM Octave octaves[] = {
   octave0,
   octave1,
   octave2,
@@ -322,7 +326,7 @@ Octave octaves[] = {
 void setup(){
   Serial.begin(115200);
 
-  displ = new Display(3, 6, 7, 8, 5, 4, 2);
+  displ = new Display(3, 6, 7, 8, 5, 4, 2, 9);
   
   cli();//diable interrupts
   
