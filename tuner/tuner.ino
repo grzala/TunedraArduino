@@ -9,38 +9,136 @@
 * This code is in the public domain.
 */
 
-//clipping indicator variables
-boolean clipping = 0;
+// --------------------------------------------------------------- NOTES ---------------------------------------------------------------------------------
+typedef struct {
+  char note;
+  bool sharp;
+  float freq;
+} Note;
 
-//data storage variables
-byte newData = 0;
-byte prevData = 0;
-unsigned int time = 0;//keeps time and sends vales to store in timer[] occasionally
-int timer[10];//storage for timing of events
-int slope[10];//storage for slope of events
-unsigned int totalTimer;//used to calculate period
-unsigned int period;//storage for period of wave
-byte index = 0;//current storage index
-float frequency;//storage for frequency calculations
-int maxSlope = 0;//used to calculate max slope as trigger point
-int newSlope;//storage for incoming slope data
+String getNoteName(const Note& note) {
+  String nam = (String)note.note;
+  if (note.sharp) nam.concat("#");
+  return nam;
+}
 
-//variables for decided whether you have a match
-byte noMatch = 0;//counts how many non-matches you've received to reset variables if it's been too long
-byte slopeTol = 3;//slope tolerance- adjust this if you need
-int timerTol = 10;//timer tolerance- adjust this if you need
+const int MIN_FREQ = 15.892f;
+const int MAX_FREQ = 508.565f;
+const int NOTES_AMOUNT = 12;
 
-//variables for amp detection
-unsigned int ampTimer = 0;
-byte maxAmp = 0;
-byte checkMaxAmp;
-byte ampThreshold = 14;//raise if you have a very noisy signal
+typedef struct {
+  int index;
+  float max_freq;
+  Note notes[12];
+} Octave;
 
-const int MID_POINT = 127; //2.5V
+Octave octave0 = {
+  0,
+  31.385f,
+  {
+    {'C', false, 16.35f},
+    {'C', true, 17.32f},
+    {'D', false, 18.35f},
+    {'D', true, 19.45f},
+    {'E', false, 20.60f},
+    {'F', false, 21.83f},
+    {'F', true, 23.12f},
+    {'G', false, 24.50f},
+    {'G', true, 25.96f},
+    {'A', false, 27.50f},
+    {'A', true, 29.14f},
+    {'B', false, 30.87f}
+  }
+};
+
+Octave octave1 = {
+  1,
+  63.535f,
+  {
+    {'C', false, 32.70f},
+    {'C', true, 34.65f},
+    {'D', false, 36.71f},
+    {'D', true, 38.89f},
+    {'E', false, 41.20f},
+    {'F', false, 43.65f},
+    {'F', true, 46.25f},
+    {'G', false, 49.00f},
+    {'G', true, 51.91f},
+    {'A', false, 55.00f},
+    {'A', true, 58.27f},
+    {'B', false, 61.74f}
+  }
+};
+
+Octave octave2 = {
+  2,
+  127.14f,
+  {
+    {'C', false, 65.41f},
+    {'C', true, 69.30f},
+    {'D', false, 73.42f},
+    {'D', true, 77.78f},
+    {'E', false, 82.41f},
+    {'F', false, 87.31f},
+    {'F', true, 92.50f},
+    {'G', false, 98.00f},
+    {'G', true, 103.83f},
+    {'A', false, 110.00f},
+    {'A', true, 116.54f},
+    {'B', false, 123.47f}
+  }
+};
+
+Octave octave3 = {
+  3,
+  254.285f,
+  {
+    {'C', false, 130.81f},
+    {'C', true, 138.59f},
+    {'D', false, 146.83f},
+    {'D', true, 155.56f},
+    {'E', false, 164.81f},
+    {'F', false, 174.61f},
+    {'F', true, 185.00f},
+    {'G', false, 196.00f},
+    {'G', true, 207.65f},
+    {'A', false, 220.00f},
+    {'A', true, 233.08f},
+    {'B', false, 246.94f}
+  }
+};
+
+Octave octave4 = {
+  4,
+  508.565f,
+  {
+    {'C', false, 261.63f},
+    {'C', true, 277.18f},
+    {'D', false, 293.66f},
+    {'D', true, 311.13f},
+    {'E', false, 329.63f},
+    {'F', false, 349.23f},
+    {'F', true, 369.99f},
+    {'G', false, 392.00f},
+    {'G', true, 415.30f},
+    {'A', false, 440.00f},
+    {'A', true, 466.15f},
+    {'B', false, 493.88f}
+  }
+};
+
+// Sorted octaves array
+Octave octaves[] = {
+  octave0,
+  octave1,
+  octave2,
+  octave3,
+  octave4
+};
+// --------------------------------------------------------------- END NOTES -----------------------------------------------------------------------------
 
 
-// DISPLAY -----------------------------------------------------------------------------------------------------
-
+// --------------------------------------------------------------- DISPLAY ----------------------------------------------------------------------------------
 typedef enum {
   mid = 0,
   up = 1,
@@ -188,141 +286,10 @@ void Display::light(unsigned int instruction) {
 }
 
 Display* displ;
-
-// END DISPLAY -----------------------------------------------------------------------------------------------------
-
-
-// NOTES -------------------------------------------------------------------------------------------------------
-typedef struct {
-  char note;
-  bool sharp;
-  float freq;
-} Note;
-
-String getNoteName(const Note& note) {
-  String nam = (String)note.note;
-  if (note.sharp) nam.concat("#");
-  return nam;
-}
-
-const int MIN_FREQ = 15.892f;
-const int MAX_FREQ = 508.565f;
-const int NOTES_AMOUNT = 12;
-
-typedef struct {
-  int index;
-  float max_freq;
-  Note notes[12];
-} Octave;
-
-const PROGMEM Octave octave0 = {
-  0,
-  31.385f,
-  {
-    {'C', false, 16.35f},
-    {'C', true, 17.32f},
-    {'D', false, 18.35f},
-    {'D', true, 19.45f},
-    {'E', false, 20.60f},
-    {'F', false, 21.83f},
-    {'F', true, 23.12f},
-    {'G', false, 24.50f},
-    {'G', true, 25.96f},
-    {'A', false, 27.50f},
-    {'A', true, 29.14f},
-    {'B', false, 30.87f}
-  }
-};
-
-const PROGMEM Octave octave1 = {
-  1,
-  63.535f,
-  {
-    {'C', false, 32.70f},
-    {'C', true, 34.65f},
-    {'D', false, 36.71f},
-    {'D', true, 38.89f},
-    {'E', false, 41.20f},
-    {'F', false, 43.65f},
-    {'F', true, 46.25f},
-    {'G', false, 49.00f},
-    {'G', true, 51.91f},
-    {'A', false, 55.00f},
-    {'A', true, 58.27f},
-    {'B', false, 61.74f}
-  }
-};
-
-const PROGMEM Octave octave2 = {
-  2,
-  127.14f,
-  {
-    {'C', false, 65.41f},
-    {'C', true, 69.30f},
-    {'D', false, 73.42f},
-    {'D', true, 77.78f},
-    {'E', false, 82.41f},
-    {'F', false, 87.31f},
-    {'F', true, 92.50f},
-    {'G', false, 98.00f},
-    {'G', true, 103.83f},
-    {'A', false, 110.00f},
-    {'A', true, 116.54f},
-    {'B', false, 123.47f}
-  }
-};
-
-const PROGMEM Octave octave3 = {
-  3,
-  254.285f,
-  {
-    {'C', false, 130.81f},
-    {'C', true, 138.59f},
-    {'D', false, 146.83f},
-    {'D', true, 155.56f},
-    {'E', false, 164.81f},
-    {'F', false, 174.61f},
-    {'F', true, 185.00f},
-    {'G', false, 196.00f},
-    {'G', true, 207.65f},
-    {'A', false, 220.00f},
-    {'A', true, 233.08f},
-    {'B', false, 246.94f}
-  }
-};
-
-const PROGMEM Octave octave4 = {
-  4,
-  508.565f,
-  {
-    {'C', false, 261.63f},
-    {'C', true, 277.18f},
-    {'D', false, 293.66f},
-    {'D', true, 311.13f},
-    {'E', false, 329.63f},
-    {'F', false, 349.23f},
-    {'F', true, 369.99f},
-    {'G', false, 392.00f},
-    {'G', true, 415.30f},
-    {'A', false, 440.00f},
-    {'A', true, 466.15f},
-    {'B', false, 493.88f}
-  }
-};
-
-// Sorted octaves array
-const PROGMEM Octave octaves[] = {
-  octave0,
-  octave1,
-  octave2,
-  octave3,
-  octave4
-};
+// --------------------------------------------------------------- END DISPLAY  ------------------------------------------------------------------------------
 
 
-// END FREQUENCIES --------------------------------------------------------------------------------------------------------------
-
-
+// --------------------------------------------------------------- SETUP ---------------------------------------------------------------------------------
 void setup(){
   Serial.begin(115200);
 
@@ -347,8 +314,39 @@ void setup(){
   
   sei();//enable interrupts
 }
+// --------------------------------------------------------------- END SETUP ---------------------------------------------------------------------------------
 
-// PHYSICS ----------------------------------------------------------------------------------------------------
+
+// --------------------------------------------------------------- PHYSICS ---------------------------------------------------------------------------------
+//clipping indicator variables
+boolean clipping = 0;
+
+//data storage variables
+byte newData = 0;
+byte prevData = 0;
+unsigned int time = 0;//keeps time and sends vales to store in timer[] occasionally
+int timer[10];//storage for timing of events
+int slope[10];//storage for slope of events
+unsigned int totalTimer;//used to calculate period
+unsigned int period;//storage for period of wave
+byte index = 0;//current storage index
+float frequency;//storage for frequency calculations
+int maxSlope = 0;//used to calculate max slope as trigger point
+int newSlope;//storage for incoming slope data
+
+//variables for decided whether you have a match
+byte noMatch = 0;//counts how many non-matches you've received to reset variables if it's been too long
+byte slopeTol = 3;//slope tolerance- adjust this if you need
+int timerTol = 10;//timer tolerance- adjust this if you need
+
+//variables for amp detection
+unsigned int ampTimer = 0;
+byte maxAmp = 0;
+byte checkMaxAmp;
+byte ampThreshold = 14;//raise if you have a very noisy signal
+
+const int MID_POINT = 127; //2.5V
+
 
 ISR(ADC_vect) {//when new ADC value ready
   //return; /////////////////////////////////// COMMENT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -442,12 +440,10 @@ void checkClipping(){//manage clipping indication
     clipping = 0;
   }
 }
+// --------------------------------------------------------------- END PHYSICS -----------------------------------------------------------------------------
 
-// END PHYSICS ----------------------------------------------------------------------------------------------------------
 
-
-// TUNING ---------------------------------------------------------------------------------------------------------------
-
+// --------------------------------------------------------------- TUNING ---------------------------------------------------------------------------------
 bool isFreqLegal(float freq) {
   return freq >= MIN_FREQ && freq < MAX_FREQ;
 }
@@ -473,9 +469,10 @@ const Note& getNote(float freq) {
   
   return *closestNote;
 }
+// --------------------------------------------------------------- END TUNING -----------------------------------------------------------------------------
 
-// END TUNING -----------------------------------------------------------------------------------------------------------
 
+// --------------------------------------------------------------- MAIN ---------------------------------------------------------------------------------
 const int FREQ_AR_LEN = 120;
 float last_frequencies[FREQ_AR_LEN];
 int freq_ar_i = 0;
@@ -560,8 +557,6 @@ void loop(){
     }
   }
   delay(10);
-
-  
-
-  
+    
 }
+// --------------------------------------------------------------- END MAIN -----------------------------------------------------------------------------
