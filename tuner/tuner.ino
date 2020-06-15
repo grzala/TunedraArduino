@@ -36,7 +36,7 @@ byte maxAmp = 0;
 byte checkMaxAmp;
 byte ampThreshold = 14;//raise if you have a very noisy signal
 
-const int MID_POINT = 114;
+const int MID_POINT = 127; //2.5V
 
 
 // DISPLAY -----------------------------------------------------------------------------------------------------
@@ -53,6 +53,29 @@ typedef enum {
 
 typedef DisplBarName DBN;
 
+typedef enum {
+  A = 0b1101111,
+  B = 0b1111001,
+  C = 0b1110010,
+  D = 0b0111101,
+  E = 0b1110011,
+  F = 0b1100011,
+  G = 0b1111010,
+  H = 0b1101101,
+  J = 0b0011100,
+  I = 0b0001100,
+  U = 0b1111100,
+  S = 0b1011011,
+  Z = 0b0110111,
+  
+} DisplInstruction;
+
+typedef enum {
+  
+} CharToInstr;
+
+typedef DisplInstruction DI;
+
 class Display {
   public:
     Display(int midPin, int upPin, int upRPin, int downRPin,
@@ -60,10 +83,14 @@ class Display {
     void clean();
     void do_sth1();
     void do_sth2();
+    void light(DI instruction);
     void light(unsigned int instruction);
+    void write(DBN pin);
+    void write(unsigned int pin);
 
   private:
     int pin_array[7];
+    unsigned int currentlyDisplaying = 0;
 };
 
 Display::Display(int midPin, int upPin, int upRPin, int downRPin,
@@ -114,8 +141,46 @@ void Display::do_sth2() {
   digitalWrite(this->pin_array[DBN::downL], HIGH);
 }
 
+void Display::write(DBN pin) {
+  this->write(static_cast<unsigned int>(pin));
+}
+
+void Display::write(unsigned int pin) {
+  digitalWrite(this->pin_array[pin], HIGH);
+}
+
+void Display::light(DI instruction) {
+  this->light(static_cast<unsigned int>(instruction));
+}
+
 void Display::light(unsigned int instruction) {
+  if (instruction == this->currentlyDisplaying) return;
   
+  this->clean();
+
+  if (instruction & (1 << DBN::mid)) {
+    this->write(DBN::mid);
+  }
+  if (instruction & (1 << DBN::up)) {
+    this->write(DBN::up);
+  }
+  if (instruction & (1 << DBN::upR)) {
+    this->write(DBN::upR);
+  }
+  if (instruction & (1 << DBN::downR)) {
+    this->write(DBN::downR);
+  }
+  if (instruction & (1 << DBN::down)) {
+    this->write(DBN::down);
+  }
+  if (instruction & (1 << DBN::downL)) {
+    this->write(DBN::downL);
+  }
+  if (instruction & (1 << DBN::upL)) {
+    this->write(DBN::upL);
+  }
+
+  this->currentlyDisplaying = instruction;
 }
 
 Display* displ;
@@ -282,7 +347,7 @@ void setup(){
 // PHYSICS ----------------------------------------------------------------------------------------------------
 
 ISR(ADC_vect) {//when new ADC value ready
-  return; /////////////////////////////////// COMMENT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  //return; /////////////////////////////////// COMMENT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   PORTB &= B11101111;//set pin 12 low
   prevData = newData;//store previous value
   newData = ADCH;//get value from A0
@@ -407,7 +472,7 @@ const Note& getNote(float freq) {
 
 // END TUNING -----------------------------------------------------------------------------------------------------------
 
-const int FREQ_AR_LEN = 200;
+const int FREQ_AR_LEN = 120;
 float last_frequencies[FREQ_AR_LEN];
 int freq_ar_i = 0;
 const float FREQ_MAX_DIFF = 0.25f;
@@ -434,37 +499,65 @@ void debug() {
   }
 }
 
-void loop(){
-//  checkClipping();
-//  
-//  if (checkMaxAmp>ampThreshold){
-//    frequency = 38462.0/float(period);//calculate frequency timer rate/period
-//    frequency+=1.f;
-//    if (isFreqLegal(frequency)) {
-//      last_frequencies[freq_ar_i++] = frequency;
-//      if (freq_ar_i >= FREQ_AR_LEN) freq_ar_i = 0;
-//
-//      // Ignore noise and big swings
-//      float average_freq = get_freq_av();
-//      float diff = abs(average_freq - frequency);
-//      float max_diff = average_freq * FREQ_MAX_DIFF;
-//      if (diff < max_diff){
-//        const Note& note = getNote(frequency);
-//        Serial.print(frequency);
-//        Serial.print(" hz - maps to note: ");
-//        //Serial.print(getNoteName(note));
-//        Serial.print(note.note);
-//        if (note.sharp) Serial.print("#");
-//        Serial.println();
-//      }
-//    }
-//  }
-//  delay(10);
+void displayNote(char letter) {
+  DI di = DI::A;
+  switch(letter) {
+    case 'A':
+      di = DI::A;
+      break;
+    case 'B':
+      di = DI::B;
+      break;
+    case 'C':
+      di = DI::C;
+      break;
+    case 'D':
+      di = DI::D;
+      break;
+    case 'E':
+      di = DI::E;
+      break;
+    case 'F':
+      di = DI::F;
+      break;
+    case 'G':
+      di = DI::G;
+      break;
+  }
 
-  displ->do_sth1();
-  delay(1500);
-  displ->do_sth2();
-  delay(1500);
+  displ->light(di);
+}
+
+void loop(){
+  checkClipping();
+
+  if (checkMaxAmp>ampThreshold){
+    frequency = 38462.0/float(period);//calculate frequency timer rate/period
+    frequency+=1.f;
+    if (isFreqLegal(frequency)) {
+      last_frequencies[freq_ar_i++] = frequency;
+      if (freq_ar_i >= FREQ_AR_LEN) freq_ar_i = 0;
+
+      // Ignore noise and big swings
+      float average_freq = get_freq_av();
+      float diff = abs(average_freq - frequency);
+      float max_diff = average_freq * FREQ_MAX_DIFF;
+      if (diff < max_diff){
+        const Note& note = getNote(frequency);
+        Serial.print(frequency);
+        Serial.print(" hz - maps to note: ");
+        //Serial.print(getNoteName(note));
+        Serial.print(note.note);
+        if (note.sharp) Serial.print("#");
+        Serial.println();
+
+        displayNote(note.note);
+      }
+    }
+  }
+  delay(10);
+
+  
 
   
 }
