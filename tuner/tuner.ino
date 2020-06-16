@@ -177,26 +177,33 @@ typedef DisplInstruction DI;
 class Display {
   public:
     Display(int midPin, int upPin, int upRPin, int downRPin,
-                        int downPin, int downLPin, int UpLPin, int sharpPin); 
+                        int downPin, int downLPin, int UpLPin, int sharpPin,
+                        int rLED0, int rLED1, int gLED, int rLED2, int rLED3); 
     void clean();
+    void cleanIndicator();
     void do_sth1();
     void do_sth2();
     void light(DI instruction, bool sharp);
-    void light(unsigned int instruction, bool sharp);
+    void light(unsigned int instruction);
     void lightSharp(bool light);
+    void lightIndicator(int currentFreq, int desiredFreq);
     void write(DBN pin);
     void write(unsigned int pin);
-    void displayNote(const Note& note);
+    void displayNote(const Note& note, float frequency);
 
   private:
     int pin_array[7];
     unsigned int currentlyDisplaying = 0;
     int sharpPin;
     bool currentSharpPinStatus = false;
+    
+    int indicator_bar[5];
 };
 
+const int ANALOG_MAX = 255;
 Display::Display(int midPin, int upPin, int upRPin, int downRPin,
-                 int downPin, int downLPin, int UpLPin, int sharpPin) {
+                 int downPin, int downLPin, int UpLPin, int sharpPin,
+                 int rLED0, int rLED1, int gLED, int rLED2, int rLED3) {
   pinMode(midPin, OUTPUT);
   pinMode(upPin, OUTPUT);
   pinMode(upRPin, OUTPUT);
@@ -204,6 +211,7 @@ Display::Display(int midPin, int upPin, int upRPin, int downRPin,
   pinMode(downPin, OUTPUT);
   pinMode(downLPin, OUTPUT);
   pinMode(UpLPin, OUTPUT);
+  
   pinMode(sharpPin, OUTPUT);
   
   this->pin_array[0] = midPin;
@@ -213,9 +221,18 @@ Display::Display(int midPin, int upPin, int upRPin, int downRPin,
   this->pin_array[4] = downPin;
   this->pin_array[5] = downLPin;
   this->pin_array[6] = UpLPin;
+  
   this->sharpPin = sharpPin;
 
+  this->indicator_bar[0] = rLED0;
+  this->indicator_bar[1] = rLED1;
+  this->indicator_bar[2] = gLED;
+  this->indicator_bar[3] = rLED2;
+  this->indicator_bar[4] = rLED3;
+
   this->clean();
+  this->lightSharp(false);
+  this->cleanIndicator();
 }
 
 void Display::clean() {
@@ -226,7 +243,14 @@ void Display::clean() {
   digitalWrite(this->pin_array[4], LOW);
   digitalWrite(this->pin_array[5], LOW);
   digitalWrite(this->pin_array[6], LOW);
-  digitalWrite(this->sharpPin, LOW);
+}
+
+void Display::cleanIndicator() {
+  analogWrite(this->indicator_bar[0], 0);
+  analogWrite(this->indicator_bar[1], 0);
+  analogWrite(this->indicator_bar[2], 0);
+  analogWrite(this->indicator_bar[3], 0);
+  analogWrite(this->indicator_bar[4], 0);
 }
 
 void Display::do_sth1() {
@@ -258,12 +282,10 @@ void Display::light(DI instruction, bool sharp) {
   this->light(static_cast<unsigned int>(instruction), sharp);
 }
 
-void Display::light(unsigned int instruction, bool sharp) {
-  if (instruction == this->currentlyDisplaying && sharp == currentSharpPinStatus) return;
+void Display::light(unsigned int instruction) {
+  if (instruction == this->currentlyDisplaying) return;
   
   this->clean();
-
-  this->lightSharp(sharp);
 
   if (instruction & (1 << DBN::mid)) {
     this->write(DBN::mid);
@@ -299,7 +321,11 @@ void Display::lightSharp(bool light) {
   this->currentSharpPinStatus = light;
 }
 
-void Display::displayNote(const Note& note) {
+void Display::lightIndicator(int currentFreq, int desiredFreq) {
+  
+}
+
+void Display::displayNote(const Note& note, float frequency) {
   DI di = DI::A;
   switch(note.note) {
     case 'A':
@@ -325,7 +351,9 @@ void Display::displayNote(const Note& note) {
       break;
   }
   
-  this->light(di, note.sharp);
+  this->light(di);
+  this->lightSharp(note.sharp);
+  this->lightIndicator((int)frequency, note.freq);
 }
 
 Display* displ;
@@ -336,7 +364,8 @@ Display* displ;
 void setup(){
   Serial.begin(115200);
 
-  displ = new Display(3, 6, 7, 8, 5, 4, 2, 9);
+  // (mid, up, upright, downright, down, leftdown, rightdown, sharp, red0, red1, green, red2, red3
+  displ = new Display(3, 6, 7, 8, 5, 4, 2, 9, A1, A2, A3, A4, A5);
   
   cli();//diable interrupts
   
@@ -563,7 +592,7 @@ void loop(){
         if (note.sharp) Serial.print("#");
         Serial.println();
 
-        displ->displayNote(note);
+        displ->displayNote(note, frequency);
       }
     }
   }
