@@ -87,7 +87,7 @@ void getNoteByFreq(Note* note, double freq) {
   note->freq = firstOctaveFreqs[closest_i]*multiplier;
   note->valid = true;
 
-  if (closest_i == NOTES_IN_OCTAVE) {
+  if (closest_i == NOTES_IN_OCTAVE-1) {
     note->max_freq = FIRST_OCT_MAX_FREQ*multiplier;
   } else {
     note->max_freq = note->freq + (((firstOctaveFreqs[closest_i+1]*multiplier) - note->freq)/2.d);
@@ -182,6 +182,10 @@ Display::Display(int midPin, int upPin, int upRPin, int downRPin,
   pinMode(UpLPin, OUTPUT);
   
   pinMode(sharpPin, OUTPUT);
+  
+  pinMode(rLED0, OUTPUT);
+  pinMode(gLED, OUTPUT);
+  pinMode(rLED1, OUTPUT);
   
   this->pin_array[0] = midPin;
   this->pin_array[1] = upPin;
@@ -314,8 +318,8 @@ void Display::lightIndicator(int currentFreq, const Note* note) {
   analogWrite(this->indicatorBar[0], val_l);
   analogWrite(this->indicatorBar[1], val_m);
   analogWrite(this->indicatorBar[2], val_r);
-  
 
+  
   Serial.println(dist_l);
   Serial.println(dist_m);
   Serial.println(dist_r);
@@ -378,7 +382,7 @@ void setup(){
   currentNote = new Note;
   
   // (mid, up, upright, downright, down, leftdown, rightdown, sharp, red0, green, red1
-  displ = new Display(3, 6, 7, 8, 5, 4, 2, 9, 10, 11, 12);
+  displ = new Display(3, 6, 7, 19, 5, 4, 2, 18, 8, 10, 12);
   
   cli();//diable interrupts
   
@@ -568,14 +572,14 @@ void loop(){
         short_last_frequencies[short_freq_ar_i++] = frequency;
         if (short_freq_ar_i >= SHORT_FREQ_AR_LEN) short_freq_ar_i = 0;
         float short_average_freq = get_av(short_last_frequencies, SHORT_FREQ_AR_LEN);
-        
+
         getNoteByFreq(currentNote, short_average_freq);
         if (currentNote->valid) {
           Serial.print(frequency);
-//          Serial.print(" hz - maps to note: ");
-//          //Serial.print(getNoteName(note));
-//          Serial.print(currentNote->note);
-//          if (currentNote->sharp) Serial.print("#");
+          Serial.print(" hz - maps to note: ");
+          //Serial.print(getNoteName(note));
+          Serial.print(currentNote->note);
+          if (currentNote->sharp) Serial.print("#");
           Serial.println();
           displ->displayNote(currentNote, frequency);
         }
