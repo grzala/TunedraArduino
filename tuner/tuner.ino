@@ -137,6 +137,7 @@ class Display {
     void write(DBN pin);
     void write(unsigned int pin);
     void displayNote(const Note* note, float frequency);
+    void restIfTime();
 
   private:
     int pin_array[7];
@@ -145,6 +146,8 @@ class Display {
     bool currentSharpPinStatus = false;
     
     int indicator_bar[5];
+    unsigned long time_at_last_display = 0;
+    const unsigned int time_to_rest = 5000;
 };
 
 const int ANALOG_MAX = 255;
@@ -301,6 +304,16 @@ void Display::displayNote(const Note* note, float frequency) {
   this->light(di);
   this->lightSharp(note->sharp);
   this->lightIndicator((int)frequency, note->freq);
+  this->time_at_last_display = millis();
+}
+
+void Display::restIfTime() {
+  unsigned long currentTime = millis();
+  if (currentTime - this->time_at_last_display > this->time_to_rest) {
+    this->clean();
+    this->lightSharp(false);
+    this->cleanIndicator();
+  }
 }
 
 // --------------------------------------------------------------- END DISPLAY  ------------------------------------------------------------------------------
@@ -493,20 +506,25 @@ void loop(){
       float average_freq = get_freq_av();
       float diff = abs(average_freq - frequency);
       float max_diff = average_freq * FREQ_MAX_DIFF;
-      
+
       if (diff < max_diff){
         getNoteByFreq(currentNote, frequency);
-        Serial.print(frequency);
-        Serial.print(" hz - maps to note: ");
-        //Serial.print(getNoteName(note));
-        Serial.print(currentNote->note);
-        if (currentNote->sharp) Serial.print("#");
-        Serial.println();
+        if (currentNote->valid) {
+          Serial.print(frequency);
+          Serial.print(" hz - maps to note: ");
+          //Serial.print(getNoteName(note));
+          Serial.print(currentNote->note);
+          if (currentNote->sharp) Serial.print("#");
+          Serial.println();
+        }
 
         displ->displayNote(currentNote, frequency);
       }
     }
   }
+
+  displ->restIfTime();
+  
   delay(10);
     
 }
