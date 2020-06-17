@@ -10,12 +10,26 @@
 */
 
 // --------------------------------------------------------------- NOTES AND TUNING -------------------------------------------------------------------------
-const double MIN_FREQ = 15.892d;
-const double FIRST_OCT_MAX_FREQ = 31.385d;
+const double MIN_FREQ = 15.8927255d;
+const double FIRST_OCT_MAX_FREQ = 31.7854510d;
 const double MAX_FREQ = 508.565d;
 const int NOTES_IN_OCTAVE = 12;
 
-const double firstOctaveFreqs[] = {16.352d, 17.324d, 18.354d, 19.455d, 20.602d, 21.827d, 23.125d, 24.500d, 25.957d, 27.500d, 29.135d, 30.868d};
+const double firstOctaveFreqs[] = {
+  16.3515978d, 
+  17.3239144d, 
+  18.3540480d, 
+  19.4554365d, 
+  20.6017223d, 
+  21.8267644d, 
+  23.1246514d, 
+  24.4997147d, 
+  25.9565435d, 
+  27.5000000d, 
+  29.1352351d, 
+  30.8677063d
+ };
+ 
 const char noteNames[] = {'C', 'C', 'D', 'D', 'E', 'F', 'F', 'G', 'G', 'A', 'A', 'B'};
 const bool noteSharps[] = {false, true, false, true, false, false, true, false, true, false, true, false};
 
@@ -35,9 +49,13 @@ bool isFreqLegal(double freq) {
 
 double get_octave_multiplier(double freq) {
   double multiplier = 1.d;
-  while (freq > firstOctaveFreqs[NOTES_IN_OCTAVE-1] * multiplier) {
+  double last_octave_freq = 0;
+  while (freq > FIRST_OCT_MAX_FREQ * multiplier) {
     multiplier *= 2.d;
+    last_octave_freq = FIRST_OCT_MAX_FREQ * multiplier;
   }
+
+  //Serial.println(last_octave_freq);
 
   return multiplier;
 }
@@ -49,8 +67,9 @@ void getNoteByFreq(Note* note, double freq) {
   }
   
   double multiplier = get_octave_multiplier(freq);
+  //Serial.println(multiplier);
 
-  // Find closest note in On time
+  // Find closest note in O(n) time
   double min_distance = MAX_FREQ;
   int closest_i = -1;
   for (int note_i = 0; note_i < NOTES_IN_OCTAVE; note_i++) {
@@ -125,7 +144,7 @@ class Display {
   public:
     Display(int midPin, int upPin, int upRPin, int downRPin,
                         int downPin, int downLPin, int UpLPin, int sharpPin,
-                        int rLED0, int rLED1, int gLED, int rLED2, int rLED3); 
+                        int rLED0, int gLED, int rLED1); 
     void clean();
     void cleanIndicator();
     void do_sth1();
@@ -133,7 +152,7 @@ class Display {
     void light(DI instruction, bool sharp);
     void light(unsigned int instruction);
     void lightSharp(bool light);
-    void lightIndicator(int currentFreq, int desiredFreq);
+    void lightIndicator(int currentFreq, const Note* note);
     void write(DBN pin);
     void write(unsigned int pin);
     void displayNote(const Note* note, float frequency);
@@ -145,15 +164,15 @@ class Display {
     int sharpPin;
     bool currentSharpPinStatus = false;
     
-    int indicator_bar[5];
+    int indicatorBar[5];
     unsigned long time_at_last_display = 0;
     const unsigned int time_to_rest = 5000;
 };
 
-const int ANALOG_MAX = 255;
+const double MAX_ANALOG = 255.d;
 Display::Display(int midPin, int upPin, int upRPin, int downRPin,
                  int downPin, int downLPin, int UpLPin, int sharpPin,
-                 int rLED0, int rLED1, int gLED, int rLED2, int rLED3) {
+                 int rLED0, int gLED, int rLED1) {
   pinMode(midPin, OUTPUT);
   pinMode(upPin, OUTPUT);
   pinMode(upRPin, OUTPUT);
@@ -174,11 +193,9 @@ Display::Display(int midPin, int upPin, int upRPin, int downRPin,
   
   this->sharpPin = sharpPin;
 
-  this->indicator_bar[0] = rLED0;
-  this->indicator_bar[1] = rLED1;
-  this->indicator_bar[2] = gLED;
-  this->indicator_bar[3] = rLED2;
-  this->indicator_bar[4] = rLED3;
+  this->indicatorBar[0] = rLED0;
+  this->indicatorBar[1] = gLED;
+  this->indicatorBar[2] = rLED1;
 
   this->clean();
   this->lightSharp(false);
@@ -196,11 +213,9 @@ void Display::clean() {
 }
 
 void Display::cleanIndicator() {
-  analogWrite(this->indicator_bar[0], 0);
-  analogWrite(this->indicator_bar[1], 0);
-  analogWrite(this->indicator_bar[2], 0);
-  analogWrite(this->indicator_bar[3], 0);
-  analogWrite(this->indicator_bar[4], 0);
+  analogWrite(this->indicatorBar[0], 0);
+  analogWrite(this->indicatorBar[1], 0);
+  analogWrite(this->indicatorBar[2], 0);
 }
 
 void Display::do_sth1() {
@@ -271,7 +286,40 @@ void Display::lightSharp(bool light) {
   this->currentSharpPinStatus = light;
 }
 
-void Display::lightIndicator(int currentFreq, int desiredFreq) {
+// currentFreq must be beterrn min and max freq of note
+void Display::lightIndicator(int currentFreq, const Note* note) {
+  if (currentFreq < note->min_freq || currentFreq > note->max_freq) {
+    return;
+  }
+
+  double max_dist_l = note->freq - note->min_freq;
+  double max_dist_r = note->max_freq - note->freq;
+  double max_dist_m = max_dist_r;
+
+  double dist_l = currentFreq - note->min_freq;
+  double dist_m = abs(currentFreq - note->freq);
+  double dist_r = note->max_freq - currentFreq;
+
+  int val_l = (int)((MAX_ANALOG * (max_dist_l - dist_l))/max_dist_l);
+  int val_m = (int)((MAX_ANALOG * (max_dist_m - dist_m))/max_dist_m);
+  int val_r = (int)((MAX_ANALOG * (max_dist_r - dist_r))/max_dist_r);
+
+  val_l = max(val_l, 0);
+  val_m = max(val_m, 0);
+  val_r = max(val_r, 0);
+
+
+  this->cleanIndicator();
+
+  analogWrite(this->indicatorBar[0], val_l);
+  analogWrite(this->indicatorBar[1], val_m);
+  analogWrite(this->indicatorBar[2], val_r);
+  
+
+  Serial.println(dist_l);
+  Serial.println(dist_m);
+  Serial.println(dist_r);
+  Serial.println();
   
 }
 
@@ -303,7 +351,7 @@ void Display::displayNote(const Note* note, float frequency) {
   
   this->light(di);
   this->lightSharp(note->sharp);
-  this->lightIndicator((int)frequency, note->freq);
+  this->lightIndicator((int)frequency, note);
   this->time_at_last_display = millis();
 }
 
@@ -329,8 +377,8 @@ void setup(){
   
   currentNote = new Note;
   
-  // (mid, up, upright, downright, down, leftdown, rightdown, sharp, red0, red1, green, red2, red3
-  displ = new Display(3, 6, 7, 8, 5, 4, 2, 9, A1, A2, A3, A4, A5);
+  // (mid, up, upright, downright, down, leftdown, rightdown, sharp, red0, green, red1
+  displ = new Display(3, 6, 7, 8, 5, 4, 2, 9, 10, 11, 12);
   
   cli();//diable interrupts
   
@@ -477,22 +525,30 @@ void checkClipping(){//manage clipping indication
 // --------------------------------------------------------------- END PHYSICS -----------------------------------------------------------------------------
 
 // --------------------------------------------------------------- MAIN ---------------------------------------------------------------------------------
-const int FREQ_AR_LEN = 120;
-float last_frequencies[FREQ_AR_LEN];
-int freq_ar_i = 0;
-const float FREQ_MAX_DIFF = 0.25f;
+// For normalizing huge and short deviations
+const int LONG_FREQ_AR_LEN = 120;
+float long_last_frequencies[LONG_FREQ_AR_LEN];
+int long_freq_ar_i = 0;
+const float FREQ_MAX_DIFF = 0.15f;
 
-float get_freq_av() {
+// For normalizing small short deviations
+const int SHORT_FREQ_AR_LEN = 60;
+float short_last_frequencies[SHORT_FREQ_AR_LEN];
+int short_freq_ar_i = 0;
+
+
+float get_av(float* ar, int len) {
   float sum = 0;
-  for (int i = 0; i < FREQ_AR_LEN; i++) {
-    if (last_frequencies > 0) {
-      sum += last_frequencies[i];
+  for (int i = 0; i < len; i++) {
+    if (ar > 0) {
+      sum += ar[i];
     }
   }
 
-  return sum/(float)FREQ_AR_LEN;
+  return sum/(float)len;
 }
 
+int c = 0;
 void loop(){
   checkClipping();
 
@@ -501,29 +557,37 @@ void loop(){
     if (isFreqLegal(frequency)) {
 
       // Ignore noise and big swings
-      last_frequencies[freq_ar_i++] = frequency;
-      if (freq_ar_i >= FREQ_AR_LEN) freq_ar_i = 0;
-      float average_freq = get_freq_av();
-      float diff = abs(average_freq - frequency);
-      float max_diff = average_freq * FREQ_MAX_DIFF;
+      long_last_frequencies[long_freq_ar_i++] = frequency;
+      if (long_freq_ar_i >= LONG_FREQ_AR_LEN) long_freq_ar_i = 0;
+      float long_average_freq = get_av(long_last_frequencies, LONG_FREQ_AR_LEN);
+      float diff = abs(long_average_freq - frequency);
+      float max_diff = long_average_freq * FREQ_MAX_DIFF;
 
       if (diff < max_diff){
-        getNoteByFreq(currentNote, frequency);
+        // get average freq
+        short_last_frequencies[short_freq_ar_i++] = frequency;
+        if (short_freq_ar_i >= SHORT_FREQ_AR_LEN) short_freq_ar_i = 0;
+        float short_average_freq = get_av(short_last_frequencies, SHORT_FREQ_AR_LEN);
+        
+        getNoteByFreq(currentNote, short_average_freq);
         if (currentNote->valid) {
           Serial.print(frequency);
-          Serial.print(" hz - maps to note: ");
-          //Serial.print(getNoteName(note));
-          Serial.print(currentNote->note);
-          if (currentNote->sharp) Serial.print("#");
+//          Serial.print(" hz - maps to note: ");
+//          //Serial.print(getNoteName(note));
+//          Serial.print(currentNote->note);
+//          if (currentNote->sharp) Serial.print("#");
           Serial.println();
+          displ->displayNote(currentNote, frequency);
         }
 
-        displ->displayNote(currentNote, frequency);
       }
     }
   }
 
   displ->restIfTime();
+
+  if (c++ > 2000) c = 0;
+  analogWrite(A1, c);
   
   delay(10);
     
