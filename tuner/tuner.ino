@@ -9,134 +9,81 @@
 * This code is in the public domain.
 */
 
-// --------------------------------------------------------------- NOTES ---------------------------------------------------------------------------------
+// --------------------------------------------------------------- NOTES AND TUNING -------------------------------------------------------------------------
+const double MIN_FREQ = 15.892d;
+const double FIRST_OCT_MAX_FREQ = 31.385d;
+const double MAX_FREQ = 508.565d;
+const int NOTES_IN_OCTAVE = 12;
+
+const double firstOctaveFreqs[] = {16.352d, 17.324d, 18.354d, 19.455d, 20.602d, 21.827d, 23.125d, 24.500d, 25.957d, 27.500d, 29.135d, 30.868d};
+const char noteNames[] = {'C', 'C', 'D', 'D', 'E', 'F', 'F', 'G', 'G', 'A', 'A', 'B'};
+const bool noteSharps[] = {false, true, false, true, false, false, true, false, true, false, true, false};
+
+namespace {
 typedef struct {
   char note;
   bool sharp;
-  float freq;
+  double freq;
+  double min_freq;
+  double max_freq;
+  bool valid = false;
 } Note;
 
-String getNoteName(const Note& note) {
-  String nam = (String)note.note;
-  if (note.sharp) nam.concat("#");
-  return nam;
+bool isFreqLegal(double freq) {
+  return freq >= MIN_FREQ && freq < MAX_FREQ;
 }
 
-const int MIN_FREQ = 15.892f;
-const int MAX_FREQ = 508.565f;
-const int NOTES_AMOUNT = 12;
-
-typedef struct {
-  int index;
-  float max_freq;
-  Note notes[12];
-} Octave;
-
-Octave octave0 = {
-  0,
-  31.385f,
-  {
-    {'C', false, 16.35f},
-    {'C', true, 17.32f},
-    {'D', false, 18.35f},
-    {'D', true, 19.45f},
-    {'E', false, 20.60f},
-    {'F', false, 21.83f},
-    {'F', true, 23.12f},
-    {'G', false, 24.50f},
-    {'G', true, 25.96f},
-    {'A', false, 27.50f},
-    {'A', true, 29.14f},
-    {'B', false, 30.87f}
+double get_octave_multiplier(double freq) {
+  double multiplier = 1.d;
+  while (freq > firstOctaveFreqs[NOTES_IN_OCTAVE-1] * multiplier) {
+    multiplier *= 2.d;
   }
-};
 
-Octave octave1 = {
-  1,
-  63.535f,
-  {
-    {'C', false, 32.70f},
-    {'C', true, 34.65f},
-    {'D', false, 36.71f},
-    {'D', true, 38.89f},
-    {'E', false, 41.20f},
-    {'F', false, 43.65f},
-    {'F', true, 46.25f},
-    {'G', false, 49.00f},
-    {'G', true, 51.91f},
-    {'A', false, 55.00f},
-    {'A', true, 58.27f},
-    {'B', false, 61.74f}
+  return multiplier;
+}
+
+void getNoteByFreq(Note* note, double freq) {
+  if (!isFreqLegal(freq)) {
+    note->valid = false;
+    return;
   }
-};
+  
+  double multiplier = get_octave_multiplier(freq);
 
-Octave octave2 = {
-  2,
-  127.14f,
-  {
-    {'C', false, 65.41f},
-    {'C', true, 69.30f},
-    {'D', false, 73.42f},
-    {'D', true, 77.78f},
-    {'E', false, 82.41f},
-    {'F', false, 87.31f},
-    {'F', true, 92.50f},
-    {'G', false, 98.00f},
-    {'G', true, 103.83f},
-    {'A', false, 110.00f},
-    {'A', true, 116.54f},
-    {'B', false, 123.47f}
+  // Find closest note in On time
+  double min_distance = MAX_FREQ;
+  int closest_i = -1;
+  for (int note_i = 0; note_i < NOTES_IN_OCTAVE; note_i++) {
+    double distance = abs(freq - (firstOctaveFreqs[note_i]*multiplier));
+    if (distance < min_distance) {
+      min_distance = distance;
+      closest_i = note_i;
+    } else {
+      break;
+    }
   }
-};
 
-Octave octave3 = {
-  3,
-  254.285f,
-  {
-    {'C', false, 130.81f},
-    {'C', true, 138.59f},
-    {'D', false, 146.83f},
-    {'D', true, 155.56f},
-    {'E', false, 164.81f},
-    {'F', false, 174.61f},
-    {'F', true, 185.00f},
-    {'G', false, 196.00f},
-    {'G', true, 207.65f},
-    {'A', false, 220.00f},
-    {'A', true, 233.08f},
-    {'B', false, 246.94f}
+  note->note = noteNames[closest_i];
+  note->sharp = noteSharps[closest_i];
+  note->freq = firstOctaveFreqs[closest_i]*multiplier;
+  note->valid = true;
+
+  if (closest_i == NOTES_IN_OCTAVE) {
+    note->max_freq = FIRST_OCT_MAX_FREQ*multiplier;
+  } else {
+    note->max_freq = note->freq + (((firstOctaveFreqs[closest_i+1]*multiplier) - note->freq)/2.d);
   }
-};
 
-Octave octave4 = {
-  4,
-  508.565f,
-  {
-    {'C', false, 261.63f},
-    {'C', true, 277.18f},
-    {'D', false, 293.66f},
-    {'D', true, 311.13f},
-    {'E', false, 329.63f},
-    {'F', false, 349.23f},
-    {'F', true, 369.99f},
-    {'G', false, 392.00f},
-    {'G', true, 415.30f},
-    {'A', false, 440.00f},
-    {'A', true, 466.15f},
-    {'B', false, 493.88f}
+  if (closest_i == 0) {
+    note->min_freq = MIN_FREQ*multiplier;
+  } else {
+    note->min_freq = note->freq - ((note->freq - (firstOctaveFreqs[closest_i-1]*multiplier))/2.d);
   }
-};
+  
+}
+}
 
-// Sorted octaves array
-Octave octaves[] = {
-  octave0,
-  octave1,
-  octave2,
-  octave3,
-  octave4
-};
-// --------------------------------------------------------------- END NOTES -----------------------------------------------------------------------------
-
+// --------------------------------------------------------------- END NOTES AND TUNING ---------------------------------------------------------------------
 
 // --------------------------------------------------------------- DISPLAY ----------------------------------------------------------------------------------
 typedef enum {
@@ -189,7 +136,7 @@ class Display {
     void lightIndicator(int currentFreq, int desiredFreq);
     void write(DBN pin);
     void write(unsigned int pin);
-    void displayNote(const Note& note, float frequency);
+    void displayNote(const Note* note, float frequency);
 
   private:
     int pin_array[7];
@@ -325,9 +272,9 @@ void Display::lightIndicator(int currentFreq, int desiredFreq) {
   
 }
 
-void Display::displayNote(const Note& note, float frequency) {
+void Display::displayNote(const Note* note, float frequency) {
   DI di = DI::A;
-  switch(note.note) {
+  switch(note->note) {
     case 'A':
       di = DI::A;
       break;
@@ -352,18 +299,23 @@ void Display::displayNote(const Note& note, float frequency) {
   }
   
   this->light(di);
-  this->lightSharp(note.sharp);
-  this->lightIndicator((int)frequency, note.freq);
+  this->lightSharp(note->sharp);
+  this->lightIndicator((int)frequency, note->freq);
 }
 
-Display* displ;
 // --------------------------------------------------------------- END DISPLAY  ------------------------------------------------------------------------------
 
 
 // --------------------------------------------------------------- SETUP ---------------------------------------------------------------------------------
+
+
+Note* currentNote = NULL;
+Display* displ = NULL;
 void setup(){
   Serial.begin(115200);
-
+  
+  currentNote = new Note;
+  
   // (mid, up, upright, downright, down, leftdown, rightdown, sharp, red0, red1, green, red2, red3
   displ = new Display(3, 6, 7, 8, 5, 4, 2, 9, A1, A2, A3, A4, A5);
   
@@ -511,36 +463,6 @@ void checkClipping(){//manage clipping indication
 }
 // --------------------------------------------------------------- END PHYSICS -----------------------------------------------------------------------------
 
-
-// --------------------------------------------------------------- TUNING ---------------------------------------------------------------------------------
-bool isFreqLegal(float freq) {
-  return freq >= MIN_FREQ && freq < MAX_FREQ;
-}
-
-const Note& getNote(float freq) {
-  int octave_i = 0;
-  while (freq >= octaves[octave_i].max_freq) {
-    octave_i++;
-  }
-  const Octave& octave = octaves[octave_i];
-    
-  float min_distance = MAX_FREQ;
-  Note* closestNote;
-  for (int note_i = 0; note_i < NOTES_AMOUNT; note_i++) {
-    float distance = abs(freq - octave.notes[note_i].freq);
-    if (distance < min_distance) {
-      min_distance = distance;
-      closestNote = &octave.notes[note_i];
-    } else {
-      break;
-    }
-  }
-  
-  return *closestNote;
-}
-// --------------------------------------------------------------- END TUNING -----------------------------------------------------------------------------
-
-
 // --------------------------------------------------------------- MAIN ---------------------------------------------------------------------------------
 const int FREQ_AR_LEN = 120;
 float last_frequencies[FREQ_AR_LEN];
@@ -558,41 +480,30 @@ float get_freq_av() {
   return sum/(float)FREQ_AR_LEN;
 }
 
-void debug() {
-  
-  for (int octave_i = 0; octave_i < 5; octave_i++) {
-    const Octave& octave = octaves[octave_i];
-    for (int note_i = 0; note_i < NOTES_AMOUNT; note_i++) {
-      const Note& note = octave.notes[note_i];
-      Serial.println("Octave: " + (String)octave.index + " note: " + note.note + " freq: " + (String)note.freq);
-    }
-  }
-}
-
 void loop(){
   checkClipping();
 
   if (checkMaxAmp>ampThreshold){
     frequency = 38462.0/float(period);//calculate frequency timer rate/period
-    frequency+=1.f;
     if (isFreqLegal(frequency)) {
-      last_frequencies[freq_ar_i++] = frequency;
-      if (freq_ar_i >= FREQ_AR_LEN) freq_ar_i = 0;
 
       // Ignore noise and big swings
+      last_frequencies[freq_ar_i++] = frequency;
+      if (freq_ar_i >= FREQ_AR_LEN) freq_ar_i = 0;
       float average_freq = get_freq_av();
       float diff = abs(average_freq - frequency);
       float max_diff = average_freq * FREQ_MAX_DIFF;
+      
       if (diff < max_diff){
-        const Note& note = getNote(frequency);
+        getNoteByFreq(currentNote, frequency);
         Serial.print(frequency);
         Serial.print(" hz - maps to note: ");
         //Serial.print(getNoteName(note));
-        Serial.print(note.note);
-        if (note.sharp) Serial.print("#");
+        Serial.print(currentNote->note);
+        if (currentNote->sharp) Serial.print("#");
         Serial.println();
 
-        displ->displayNote(note, frequency);
+        displ->displayNote(currentNote, frequency);
       }
     }
   }
