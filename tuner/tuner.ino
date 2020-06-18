@@ -296,96 +296,79 @@ void Display::lightSharp(bool light) {
 
 
 const double MAX_ANALOG = 200.d; // LEDS do not need to go any higher
-const double indicator_ratio = 1.5d; // make function slope steeper by increasing
-const double GREEN_DIODE_BOOST = 1.1d; // green is dimmer
-// zero form y = a(x-p)(x-q)
-//int Display::getIndicatorValByDistance(double distance, double max_distance) {
-//  Serial.print("received dist: ");
-//  Serial.println(distance);
-//  double p = max_distance;
-//  double q = max_distance + (max_distance * indicator_ratio * 2.d);
-//  double a = MAX_ANALOG / (p * q);
-////  double ratio_change = max_distance * indicator_ratio;
-////  double p = max_distance + ratio_change;
-////  double q = max_distance - ratio_change;
-////  double a = MAX_ANALOG / (p * q);
-//
-//
-//  Serial.print("p ");
-//  Serial.println(p);
-//  Serial.print("q ");
-//  Serial.println(q);
-//  Serial.print("a ");
-//  Serial.println(a);
-//
-//  
-//  return max(0, (int)(a * (distance - p) * (distance - q)));
-//}
 
-const double dist_bounds[] = {0.03d, 0.10d, 0.35d};
+// Adjust those to alter light. LEDs are lighted according to three linear functions intersecting
+const int LEDFunctions_Len = 3; // How many linear functions I use
+const double xBoundFactors[] = { 0.035d, 0.15d, 0.35d };
+const double yBoundFactors[] = { 0.4, 0.05, 0.d };
+const double yBounds[] = { 
+  yBoundFactors[0] * MAX_ANALOG,
+  yBoundFactors[1] * MAX_ANALOG, 
+  yBoundFactors[2] * MAX_ANALOG
+}; 
+
+typedef struct {
+  double max_distance;
+  double As[LEDFunctions_Len]; 
+  double Bs[LEDFunctions_Len];
+  double xBounds[LEDFunctions_Len];
+} LEDFunctionCache;
+
+LEDFunctionCache ledFCache {-1.d};
+
+// build a and b coefficients for linear functions
+void reBuildCache(double max_distance) {
+  
+}
+
 int Display::getIndicatorValByDistance(double distance, double max_distance) {
-  if (distance < 0) return MAX_ANALOG;
-
-  double M_A = MAX_ANALOG;
-  double M_D = max_distance;
-
-  double xBoundFactors[] = { 0.035d, 0.15d, 0.35d };
-  double yBoundFactors[] = { 0.4, 0.05, 0.d };
-
-  double Xs[] = { 
-    xBoundFactors[0] * M_D,
-    xBoundFactors[1] * M_D, 
-    xBoundFactors[2] * M_D
-  }; 
+  if (distance < 0) return MAX_ANALOG; // distance should never be negative - in case it is, return max
   
-  double Ys[] = { 
-    yBoundFactors[0] * M_A,
-    yBoundFactors[1] * M_A, 
-    yBoundFactors[2] * M_A
-  }; 
+  ledFCache.xBounds[0] = xBoundFactors[0] * max_distance;
+  ledFCache.xBounds[1] = xBoundFactors[1] * max_distance;
+  ledFCache.xBounds[2] = xBoundFactors[2] * max_distance;
 
-  if (distance > Xs[2]) return 0;
+  if (distance > ledFCache.xBounds[2]) return 0; // always no light if distance too high
 
-  const int functions_len = 3;
-  double As[functions_len]; double Bs[functions_len];
+  double As[LEDFunctions_Len]; double Bs[LEDFunctions_Len];
 
-  As[0] = (Ys[0] - M_A) / (Xs[0]);
-  Bs[0] = M_A;
+  ledFCache.As[0] = (yBounds[0] - MAX_ANALOG) / (ledFCache.xBounds[0]);
+  ledFCache.Bs[0] = MAX_ANALOG;
   
-  As[1] = (Ys[1] - Ys[0]) / (Xs[1] - Xs[0]);
-  Bs[1] = Ys[1] - (As[1] * Xs[1]);
+  ledFCache.As[1] = (yBounds[1] - yBounds[0]) / (ledFCache.xBounds[1] - ledFCache.xBounds[0]);
+  ledFCache.Bs[1] = yBounds[1] - (ledFCache.As[1] * ledFCache.xBounds[1]);
   
-  As[2] = (Ys[2] - Ys[1]) / (Xs[2] - Xs[1]);
-  Bs[2] = Ys[2] - (As[2] * Xs[2]);
+  ledFCache.As[2] = (yBounds[2] - yBounds[1]) / (ledFCache.xBounds[2] - ledFCache.xBounds[1]);
+  ledFCache.Bs[2] = yBounds[2] - (ledFCache.As[2] * ledFCache.xBounds[2]);
 
   
-  Serial.print("f(x) = ");
-  Serial.print(As[0]);
-  Serial.print("x + ");
-  Serial.print(Bs[0]);
-  Serial.println();
-  Serial.print("f(x) = ");
-  Serial.print(As[1]);
-  Serial.print("x + ");
-  Serial.print(Bs[1]);
-  Serial.println();
-  Serial.print("f(x) = ");
-  Serial.print(As[2]);
-  Serial.print("x + ");
-  Serial.print(Bs[2]);
-  Serial.println();
+//  Serial.print("f(x) = ");
+//  Serial.print(As[0]);
+//  Serial.print("x + ");
+//  Serial.print(Bs[0]);
+//  Serial.println();
+//  Serial.print("f(x) = ");
+//  Serial.print(As[1]);
+//  Serial.print("x + ");
+//  Serial.print(Bs[1]);
+//  Serial.println();
+//  Serial.print("f(x) = ");
+//  Serial.print(As[2]);
+//  Serial.print("x + ");
+//  Serial.print(Bs[2]);
+//  Serial.println();
 
+  // Find which function to use
   int i = 0;
-  for(; i < functions_len; i++) {
-    if (distance <= Xs[i]) {
+  for(; i < LEDFunctions_Len; i++) 
+    if (distance <= ledFCache.xBounds[i]) 
       break;
-    }
-  }
-
-  Serial.print("using function index: ");
-  Serial.println(i);
-  int val = (int)((As[i] * distance) + Bs[i]);
+    
   
+
+//  Serial.print("using function index: ");
+//  Serial.println(i);
+  int val = (int)((ledFCache.As[i] * distance) + ledFCache.Bs[i]);
   return val;
 }
 
@@ -426,7 +409,6 @@ void Display::lightIndicator(double currentFreq, const Note* note) {
   
   for (int i = 0; i < 5; i++) {
     int val = this->getIndicatorValByDistance(dists[i], max_dist);
-    if (i == 2) val *= GREEN_DIODE_BOOST; // green needs more power
     analogWrite(this->indicatorBar[i], val);
     Serial.print("max dist: ");
     Serial.println(max_dist);
@@ -694,14 +676,6 @@ void loop(){
         short_last_frequencies[short_freq_ar_i++] = frequency;
         if (short_freq_ar_i >= SHORT_FREQ_AR_LEN) short_freq_ar_i = 0;
         float short_average_freq = get_av(short_last_frequencies, SHORT_FREQ_AR_LEN);
-        
-//         Serial.print("True freq: ");
-//         Serial.print(frequency);
-//         Serial.print(" long freq: ");
-//         Serial.print(long_average_freq);
-         Serial.print(" short freq: ");
-         Serial.print(short_average_freq);
-         Serial.println();
 
         getNoteByFreq(currentNote, short_average_freq);
         if (currentNote->valid) {
