@@ -1,5 +1,5 @@
 /*
-* Modified Arduino Frequency Detection
+* This code uses Arduino Frequency Detection algorithm
 * by Nicole Grimwood
 *
 * For more information please visit: 
@@ -10,6 +10,7 @@
 */
 
 // --------------------------------------------------------------- NOTES AND TUNING -------------------------------------------------------------------------
+// constants for note detection
 const double MIN_FREQ = 15.8927255d;
 const double FIRST_OCT_MAX_FREQ = 31.7854510d;
 const double MAX_FREQ = 508.565d;
@@ -33,7 +34,9 @@ const double firstOctaveFreqs[] = {
 const char noteNames[] = {'C', 'C', 'D', 'D', 'E', 'F', 'F', 'G', 'G', 'A', 'A', 'B'};
 const bool noteSharps[] = {false, true, false, true, false, false, true, false, true, false, true, false};
 
+// Namespace due to compiling problems
 namespace {
+  
 typedef struct {
   char note;
   bool sharp;
@@ -47,6 +50,7 @@ bool isFreqLegal(double freq) {
   return freq >= MIN_FREQ && freq < MAX_FREQ;
 }
 
+// Determine in which octave lies the frequency and get a multiplier required to work with that octave
 double get_octave_multiplier(double freq) {
   double multiplier = 1.d;
   double last_octave_freq = 0;
@@ -54,8 +58,6 @@ double get_octave_multiplier(double freq) {
     multiplier *= 2.d;
     last_octave_freq = FIRST_OCT_MAX_FREQ * multiplier;
   }
-
-  //Serial.println(last_octave_freq);
 
   return multiplier;
 }
@@ -67,7 +69,6 @@ void getNoteByFreq(Note* note, double freq) {
   }
   
   double multiplier = get_octave_multiplier(freq);
-  //Serial.println(multiplier);
 
   // Find closest note in O(n) time
   double min_distance = MAX_FREQ;
@@ -82,6 +83,7 @@ void getNoteByFreq(Note* note, double freq) {
     }
   }
 
+  // Fill note struct
   note->note = noteNames[closest_i];
   note->sharp = noteSharps[closest_i];
   note->freq = firstOctaveFreqs[closest_i]*multiplier;
@@ -98,13 +100,14 @@ void getNoteByFreq(Note* note, double freq) {
   } else {
     note->min_freq = note->freq - ((note->freq - (firstOctaveFreqs[closest_i-1]*multiplier))/2.d);
   }
-  
 }
+
 }
 
 // --------------------------------------------------------------- END NOTES AND TUNING ---------------------------------------------------------------------
 
 // --------------------------------------------------------------- DISPLAY ----------------------------------------------------------------------------------
+// Map display segments to int
 typedef enum {
   mid = 0,
   up = 1,
@@ -114,9 +117,9 @@ typedef enum {
   downL = 5,
   upL = 6,
 } DisplBarName;
-
 typedef DisplBarName DBN;
 
+// Instructions for displaying letters
 typedef enum {
   A = 0b1101111,
   B = 0b1111001,
@@ -130,18 +133,15 @@ typedef enum {
   I = 0b0001100,
   U = 0b1111100,
   S = 0b1011011,
-  Z = 0b0110111,
-  
+  Z = 0b0110111, 
 } DisplInstruction;
-
-typedef enum {
-  
-} CharToInstr;
-
 typedef DisplInstruction DI;
 
+// Display class handles LED 7 segment display, LED indicating sharp note and a LED bar indicating deviation
 class Display {
   public:
+    static const int LEDFunctions_Len = 3; // 3 linear functions will help determine LED brightness
+  
     Display(int midPin, int upPin, int upRPin, int downRPin,
                         int downPin, int downLPin, int UpLPin, int sharpPin,
                         int rLED0, int rLED1, int gLED, int rLED2, int rLED3); 
@@ -156,20 +156,46 @@ class Display {
     void write(DBN pin);
     void write(unsigned int pin);
     void displayNote(const Note* note, double frequency);
-    void restIfTime();
+    void resetIfTime();
 
   private:
     int pin_array[7];
     unsigned int currentlyDisplaying = 0;
     int sharpPin;
     bool currentSharpPinStatus = false;
-    
     int indicatorBar[5];
+    
     unsigned long time_at_last_display = 0;
-    const unsigned int time_to_rest = 5000;
-    int getIndicatorValByDistance(double distance, double max_distance);
-};
+    const unsigned int time_to_reset = 5000;
 
+    
+    // Adjust those to alter light. LEDs are lighted according to three linear functions intersecting
+    const static double MAX_ANALOG = 200.d; // LEDS do not need to go any higher
+    
+    static const double xBoundFactors[LEDFunctions_Len] = { 0.035d, 0.15d, 0.35d };
+    static const double yBoundFactors[LEDFunctions_Len] = { 0.4, 0.05, 0.d };
+    static const double yBounds[LEDFunctions_Len] = { 
+      yBoundFactors[0] * MAX_ANALOG,
+      yBoundFactors[1] * MAX_ANALOG, 
+      yBoundFactors[2] * MAX_ANALOG
+    }; 
+    
+    typedef struct {
+      double max_distance;
+      double As[Display::LEDFunctions_Len]; 
+      double Bs[Display::LEDFunctions_Len];
+      double xBounds[Display::LEDFunctions_Len];
+    } LEDFunctionCache;
+    LEDFunctionCache ledFCache {-1};
+
+    
+    int getIndicatorValByDistance(double distance, double max_distance);
+    void rebuildCache(double max_distance);
+    void printCacheInfo();
+};
+// END CLASS DISPLAY DECLARATION
+
+// IMPLEMENT CLASS DISPLAY
 Display::Display(int midPin, int upPin, int upRPin, int downRPin,
                  int downPin, int downLPin, int UpLPin, int sharpPin,
                  int rLED0, int rLED1, int gLED, int rLED2, int rLED3) {
@@ -216,6 +242,7 @@ void Display::clean() {
   digitalWrite(this->pin_array[4], LOW);
   digitalWrite(this->pin_array[5], LOW);
   digitalWrite(this->pin_array[6], LOW);
+  this->currentlyDisplaying = 0;
 }
 
 void Display::cleanIndicator() {
@@ -295,42 +322,29 @@ void Display::lightSharp(bool light) {
 }
 
 
-const double MAX_ANALOG = 200.d; // LEDS do not need to go any higher
-
-// Adjust those to alter light. LEDs are lighted according to three linear functions intersecting
-const int LEDFunctions_Len = 3; // How many linear functions I use
-const double xBoundFactors[] = { 0.035d, 0.15d, 0.35d };
-const double yBoundFactors[] = { 0.4, 0.05, 0.d };
-const double yBounds[] = { 
-  yBoundFactors[0] * MAX_ANALOG,
-  yBoundFactors[1] * MAX_ANALOG, 
-  yBoundFactors[2] * MAX_ANALOG
-}; 
-
-typedef struct {
-  double max_distance;
-  double As[LEDFunctions_Len]; 
-  double Bs[LEDFunctions_Len];
-  double xBounds[LEDFunctions_Len];
-} LEDFunctionCache;
-
-LEDFunctionCache ledFCache {-1.d};
-
-// build a and b coefficients for linear functions
-void reBuildCache(double max_distance) {
-  
+void Display::printCacheInfo() {
+  Serial.print("f(x) = ");
+  Serial.print(ledFCache.As[0]);
+  Serial.print("x + ");
+  Serial.print(ledFCache.Bs[0]);
+  Serial.println();
+  Serial.print("f(x) = ");
+  Serial.print(ledFCache.As[1]);
+  Serial.print("x + ");
+  Serial.print(ledFCache.Bs[1]);
+  Serial.println();
+  Serial.print("f(x) = ");
+  Serial.print(ledFCache.As[2]);
+  Serial.print("x + ");
+  Serial.print(ledFCache.Bs[2]);
+  Serial.println();
 }
 
-int Display::getIndicatorValByDistance(double distance, double max_distance) {
-  if (distance < 0) return MAX_ANALOG; // distance should never be negative - in case it is, return max
-  
+// build a and b coefficients for linear functions
+void Display::rebuildCache(double max_distance) {
   ledFCache.xBounds[0] = xBoundFactors[0] * max_distance;
   ledFCache.xBounds[1] = xBoundFactors[1] * max_distance;
   ledFCache.xBounds[2] = xBoundFactors[2] * max_distance;
-
-  if (distance > ledFCache.xBounds[2]) return 0; // always no light if distance too high
-
-  double As[LEDFunctions_Len]; double Bs[LEDFunctions_Len];
 
   ledFCache.As[0] = (yBounds[0] - MAX_ANALOG) / (ledFCache.xBounds[0]);
   ledFCache.Bs[0] = MAX_ANALOG;
@@ -340,34 +354,20 @@ int Display::getIndicatorValByDistance(double distance, double max_distance) {
   
   ledFCache.As[2] = (yBounds[2] - yBounds[1]) / (ledFCache.xBounds[2] - ledFCache.xBounds[1]);
   ledFCache.Bs[2] = yBounds[2] - (ledFCache.As[2] * ledFCache.xBounds[2]);
+}
 
+int Display::getIndicatorValByDistance(double distance, double max_distance) {
+  this->rebuildCache(max_distance); // find new functions
   
-//  Serial.print("f(x) = ");
-//  Serial.print(As[0]);
-//  Serial.print("x + ");
-//  Serial.print(Bs[0]);
-//  Serial.println();
-//  Serial.print("f(x) = ");
-//  Serial.print(As[1]);
-//  Serial.print("x + ");
-//  Serial.print(Bs[1]);
-//  Serial.println();
-//  Serial.print("f(x) = ");
-//  Serial.print(As[2]);
-//  Serial.print("x + ");
-//  Serial.print(Bs[2]);
-//  Serial.println();
+  if (distance < 0) return MAX_ANALOG; // distance should never be negative - in case it is, return max
+  if (distance > ledFCache.xBounds[2]) return 0; // always no light if distance too high
 
   // Find which function to use
   int i = 0;
   for(; i < LEDFunctions_Len; i++) 
     if (distance <= ledFCache.xBounds[i]) 
       break;
-    
-  
-
-//  Serial.print("using function index: ");
-//  Serial.println(i);
+      
   int val = (int)((ledFCache.As[i] * distance) + ledFCache.Bs[i]);
   return val;
 }
@@ -382,22 +382,6 @@ void Display::lightIndicator(double currentFreq, const Note* note) {
 
   double bound_1 = note->freq - (note->freq  - note->min_freq)/2.d;
   double bound_3 = note->freq + (note->max_freq - note->freq)/2.d;
-
-  Serial.print("currentFreq: ");
-  Serial.println(currentFreq);
-  
-  Serial.print(" bound 0: ");
-  Serial.print(note->min_freq);
-  Serial.print(" bound 1: ");
-  Serial.print(bound_1);
-  Serial.print(" bound 2: ");
-  Serial.print(note->freq);
-  Serial.print(" bound 3: ");
-  Serial.print(bound_3);
-  Serial.print(" bound 4: ");
-  Serial.print(note->max_freq);
-  Serial.println();
-
   
   double dists[] = {
     min(max_dist, currentFreq - note->min_freq),
@@ -410,16 +394,7 @@ void Display::lightIndicator(double currentFreq, const Note* note) {
   for (int i = 0; i < 5; i++) {
     int val = this->getIndicatorValByDistance(dists[i], max_dist);
     analogWrite(this->indicatorBar[i], val);
-    Serial.print("max dist: ");
-    Serial.println(max_dist);
-    Serial.print("distance: ");
-    Serial.println(dists[i]);
-    Serial.print("val: ");
-    Serial.println(val);
-  }
-  
-  Serial.println();
-  
+  }  
 }
 
 void Display::displayNote(const Note* note, double frequency) {
@@ -454,9 +429,9 @@ void Display::displayNote(const Note* note, double frequency) {
   this->time_at_last_display = millis();
 }
 
-void Display::restIfTime() {
+void Display::resetIfTime() {
   unsigned long currentTime = millis();
-  if (currentTime - this->time_at_last_display > this->time_to_rest) {
+  if (currentTime - this->time_at_last_display > this->time_to_reset) {
     this->clean();
     this->lightSharp(false);
     this->cleanIndicator();
@@ -560,7 +535,6 @@ ISR(ADC_vect) {//when new ADC value ready
         for (byte i=0;i<index;i++){
           totalTimer+=timer[i];
         }
-        //Serial.println("I AM HER2 ");
         period = totalTimer;//set period
         //reset new zero index values to compare with
         timer[0] = timer[index];
@@ -569,7 +543,6 @@ ISR(ADC_vect) {//when new ADC value ready
         noMatch = 0;
       }
       else{//crossing midpoint but not match
-        //Serial.println("I AM HER3 ");
         index++;//increment index
         if (index > 9){
           reset();
@@ -592,7 +565,6 @@ ISR(ADC_vect) {//when new ADC value ready
   
   if (newData == 0 || newData == 1023){//if clipping
     clipping = 1;//currently clipping
-    //Serial.println("clipping");
   }
   
   time++;//increment timer at rate of 38.5kHz
@@ -635,7 +607,7 @@ const int SHORT_FREQ_AR_LEN = 20;
 double short_last_frequencies[SHORT_FREQ_AR_LEN];
 int short_freq_ar_i = 0;
 
-
+// Get average from double array
 double get_av(double* ar, int len) {
   double sum = 0;
   for (int i = 0; i < len; i++) {
@@ -647,16 +619,15 @@ double get_av(double* ar, int len) {
   return sum/(double)len;
 }
 
+// Print freq + note info
 void printFreqNote(double frequency, const Note* note) {
     Serial.print(frequency);
     Serial.print(" hz - maps to note: ");
-    //Serial.print(getNoteName(note));
     Serial.print(currentNote->note);
     if (currentNote->sharp) Serial.print("#");
     Serial.println();
 }
 
-int c = 0;
 void loop(){
   checkClipping();
 
@@ -677,22 +648,19 @@ void loop(){
         if (short_freq_ar_i >= SHORT_FREQ_AR_LEN) short_freq_ar_i = 0;
         float short_average_freq = get_av(short_last_frequencies, SHORT_FREQ_AR_LEN);
 
-        getNoteByFreq(currentNote, short_average_freq);
+        getNoteByFreq(currentNote, short_average_freq); // RECOGNIZE NOTE
         if (currentNote->valid) {
-          //printFreq(short_average_freq, currentNore);
-          displ->displayNote(currentNote, short_average_freq);
+          //printFreq(short_average_freq, currentNote);
+          displ->displayNote(currentNote, short_average_freq); // DISPLAY NOTE
         }
 
       }
     }
   }
 
-  displ->restIfTime();
-
-  if (c++ > 2000) c = 0;
-  analogWrite(A1, c);
+  displ->resetIfTime(); // Clean display if inactive
   
-  delay(10);
+  delay(10); // Dont' overwork yourself bro
     
 }
 // --------------------------------------------------------------- END MAIN -----------------------------------------------------------------------------
