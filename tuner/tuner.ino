@@ -152,10 +152,10 @@ class Display {
     void light(DI instruction, bool sharp);
     void light(unsigned int instruction);
     void lightSharp(bool light);
-    void lightIndicator(int currentFreq, const Note* note);
+    void lightIndicator(double currentFreq, const Note* note);
     void write(DBN pin);
     void write(unsigned int pin);
-    void displayNote(const Note* note, float frequency);
+    void displayNote(const Note* note, double frequency);
     void restIfTime();
 
   private:
@@ -295,32 +295,127 @@ void Display::lightSharp(bool light) {
 }
 
 
-const double MAX_ANALOG = 70.d; // LEDS do not go any higher due to resistors
-const double indicator_ratio = 0.6d; // make function slope steeper by increasing
+const double MAX_ANALOG = 200.d; // LEDS do not need to go any higher
+const double indicator_ratio = 1.5d; // make function slope steeper by increasing
+const double GREEN_DIODE_BOOST = 1.1d; // green is dimmer
 // zero form y = a(x-p)(x-q)
+//int Display::getIndicatorValByDistance(double distance, double max_distance) {
+//  Serial.print("received dist: ");
+//  Serial.println(distance);
+//  double p = max_distance;
+//  double q = max_distance + (max_distance * indicator_ratio * 2.d);
+//  double a = MAX_ANALOG / (p * q);
+////  double ratio_change = max_distance * indicator_ratio;
+////  double p = max_distance + ratio_change;
+////  double q = max_distance - ratio_change;
+////  double a = MAX_ANALOG / (p * q);
+//
+//
+//  Serial.print("p ");
+//  Serial.println(p);
+//  Serial.print("q ");
+//  Serial.println(q);
+//  Serial.print("a ");
+//  Serial.println(a);
+//
+//  
+//  return max(0, (int)(a * (distance - p) * (distance - q)));
+//}
+
+const double dist_bounds[] = {0.03d, 0.10d, 0.35d};
 int Display::getIndicatorValByDistance(double distance, double max_distance) {
-  Serial.print("received dist: ");
-  Serial.println(distance);
-  double p = max_distance;
-  double q = max_distance + (max_distance * indicator_ratio * 2.d);
-  double a = MAX_ANALOG / (p * q);
+  if (distance < 0) return MAX_ANALOG;
+
+  double M_A = MAX_ANALOG;
+  double M_D = max_distance;
+
+  double xBoundFactors[] = { 0.035d, 0.15d, 0.35d };
+  double yBoundFactors[] = { 0.4, 0.05, 0.d };
+
+  double Xs[] = { 
+    xBoundFactors[0] * M_D,
+    xBoundFactors[1] * M_D, 
+    xBoundFactors[2] * M_D
+  }; 
+  
+  double Ys[] = { 
+    yBoundFactors[0] * M_A,
+    yBoundFactors[1] * M_A, 
+    yBoundFactors[2] * M_A
+  }; 
+
+  if (distance > Xs[2]) return 0;
+
+  const int functions_len = 3;
+  double As[functions_len]; double Bs[functions_len];
+
+  As[0] = (Ys[0] - M_A) / (Xs[0]);
+  Bs[0] = M_A;
+  
+  As[1] = (Ys[1] - Ys[0]) / (Xs[1] - Xs[0]);
+  Bs[1] = Ys[1] - (As[1] * Xs[1]);
+  
+  As[2] = (Ys[2] - Ys[1]) / (Xs[2] - Xs[1]);
+  Bs[2] = Ys[2] - (As[2] * Xs[2]);
 
   
-  return max(0, (int)a * (distance - p) * (distance - q));
+  Serial.print("f(x) = ");
+  Serial.print(As[0]);
+  Serial.print("x + ");
+  Serial.print(Bs[0]);
+  Serial.println();
+  Serial.print("f(x) = ");
+  Serial.print(As[1]);
+  Serial.print("x + ");
+  Serial.print(Bs[1]);
+  Serial.println();
+  Serial.print("f(x) = ");
+  Serial.print(As[2]);
+  Serial.print("x + ");
+  Serial.print(Bs[2]);
+  Serial.println();
+
+  int i = 0;
+  for(; i < functions_len; i++) {
+    if (distance <= Xs[i]) {
+      break;
+    }
+  }
+
+  Serial.print("using function index: ");
+  Serial.println(i);
+  int val = (int)((As[i] * distance) + Bs[i]);
+  
+  return val;
 }
 
-
 // currentFreq must be beterrn min and max freq of note
-void Display::lightIndicator(int currentFreq, const Note* note) {
+void Display::lightIndicator(double currentFreq, const Note* note) {
   if (currentFreq < note->min_freq || currentFreq > note->max_freq) {
     return;
   }
 
-  double max_dist = (note->max_freq - note->min_freq) /2.d;
+  double max_dist = (note->max_freq - note->min_freq);
 
-  double bound_1 = note->min_freq - (currentFreq - note->min_freq)/2.d;
-  double bound_3 = note->max_freq - (note->max_freq - currentFreq)/2.d;
+  double bound_1 = note->freq - (note->freq  - note->min_freq)/2.d;
+  double bound_3 = note->freq + (note->max_freq - note->freq)/2.d;
 
+  Serial.print("currentFreq: ");
+  Serial.println(currentFreq);
+  
+  Serial.print(" bound 0: ");
+  Serial.print(note->min_freq);
+  Serial.print(" bound 1: ");
+  Serial.print(bound_1);
+  Serial.print(" bound 2: ");
+  Serial.print(note->freq);
+  Serial.print(" bound 3: ");
+  Serial.print(bound_3);
+  Serial.print(" bound 4: ");
+  Serial.print(note->max_freq);
+  Serial.println();
+
+  
   double dists[] = {
     min(max_dist, currentFreq - note->min_freq),
     min(max_dist, abs(currentFreq - bound_1)),
@@ -328,14 +423,16 @@ void Display::lightIndicator(int currentFreq, const Note* note) {
     min(max_dist, abs(bound_3 - currentFreq)),
     min(max_dist, note->max_freq - currentFreq)
   };
-
-  Serial.print("max dist");
-  Serial.println(max_dist);
   
   for (int i = 0; i < 5; i++) {
     int val = this->getIndicatorValByDistance(dists[i], max_dist);
-    if (i == 2) val *= 1.5d; // green needs more power
+    if (i == 2) val *= GREEN_DIODE_BOOST; // green needs more power
     analogWrite(this->indicatorBar[i], val);
+    Serial.print("max dist: ");
+    Serial.println(max_dist);
+    Serial.print("distance: ");
+    Serial.println(dists[i]);
+    Serial.print("val: ");
     Serial.println(val);
   }
   
@@ -343,7 +440,7 @@ void Display::lightIndicator(int currentFreq, const Note* note) {
   
 }
 
-void Display::displayNote(const Note* note, float frequency) {
+void Display::displayNote(const Note* note, double frequency) {
   DI di = DI::A;
   switch(note->note) {
     case 'A':
@@ -371,7 +468,7 @@ void Display::displayNote(const Note* note, float frequency) {
   
   this->light(di);
   this->lightSharp(note->sharp);
-  this->lightIndicator((int)frequency, note);
+  this->lightIndicator(frequency, note);
   this->time_at_last_display = millis();
 }
 
@@ -398,7 +495,7 @@ void setup(){
   currentNote = new Note;
   
   // (mid, up, upright, downright, down, leftdown, rightdown, sharp, red0, red1, green, red2, red3)
-  displ = new Display(3, 19, 18, 17, 7, 4, 2, 16, 11, 10, 5, 9, 6);
+  displ = new Display(3, 19, 18, 17, 7, 4, 2, 16, 6, 9, 5, 10, 11);
   
   cli();//diable interrupts
   
@@ -547,25 +644,25 @@ void checkClipping(){//manage clipping indication
 // --------------------------------------------------------------- MAIN ---------------------------------------------------------------------------------
 // For normalizing huge and short deviations
 const int LONG_FREQ_AR_LEN = 120;
-float long_last_frequencies[LONG_FREQ_AR_LEN];
+double long_last_frequencies[LONG_FREQ_AR_LEN];
 int long_freq_ar_i = 0;
-const float FREQ_MAX_DIFF = 0.15f;
+const double FREQ_MAX_DIFF = 0.15f;
 
 // For normalizing small short deviations
-const int SHORT_FREQ_AR_LEN = 30;
-float short_last_frequencies[SHORT_FREQ_AR_LEN];
+const int SHORT_FREQ_AR_LEN = 20;
+double short_last_frequencies[SHORT_FREQ_AR_LEN];
 int short_freq_ar_i = 0;
 
 
-float get_av(float* ar, int len) {
-  float sum = 0;
+double get_av(double* ar, int len) {
+  double sum = 0;
   for (int i = 0; i < len; i++) {
     if (ar > 0) {
       sum += ar[i];
     }
   }
 
-  return sum/(float)len;
+  return sum/(double)len;
 }
 
 void printFreqNote(double frequency, const Note* note) {
@@ -597,6 +694,14 @@ void loop(){
         short_last_frequencies[short_freq_ar_i++] = frequency;
         if (short_freq_ar_i >= SHORT_FREQ_AR_LEN) short_freq_ar_i = 0;
         float short_average_freq = get_av(short_last_frequencies, SHORT_FREQ_AR_LEN);
+        
+//         Serial.print("True freq: ");
+//         Serial.print(frequency);
+//         Serial.print(" long freq: ");
+//         Serial.print(long_average_freq);
+         Serial.print(" short freq: ");
+         Serial.print(short_average_freq);
+         Serial.println();
 
         getNoteByFreq(currentNote, short_average_freq);
         if (currentNote->valid) {
