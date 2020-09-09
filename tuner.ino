@@ -393,7 +393,7 @@ void Display::lightIndicator(double currentFreq, const Note* note) {
   
   for (int i = 0; i < 5; i++) {
     int val = this->getIndicatorValByDistance(dists[i], max_dist);
-    analogWrite(this->indicatorBar[i], val);
+    //analogWrite(this->indicatorBar[i], val);
   }  
 }
 
@@ -452,7 +452,7 @@ void setup(){
   currentNote = new Note;
   
   // (mid, up, upright, downright, down, leftdown, rightdown, sharp, red0, red1, green, red2, red3)
-  displ = new Display(3, 19, 18, 17, 7, 4, 2, 16, 6, 9, 5, 10, 11);
+  displ = new Display(3, 19, 18, 17, 6, 4, 2, 16, 10, 9, 10, 10, 11);
   
   cli();//diable interrupts
   
@@ -465,7 +465,7 @@ void setup(){
   ADMUX |= (1 << REFS0); //set reference voltage
   ADMUX |= (1 << ADLAR); //left align the ADC value- so we can read highest 8 bits from ADCH register only
   
-  ADCSRA |= (1 << ADPS2) | (1 << ADPS0); //set ADC clock with 32 prescaler- 16mHz/32=500kHz
+  ADCSRA |= (1 << ADPS2)  | (1 << ADPS0); //set ADC clock with 32 prescaler- 16mHz/32=500kHz
   ADCSRA |= (1 << ADATE); //enabble auto trigger
   ADCSRA |= (1 << ADIE); //enable interrupts when measurement complete
   ADCSRA |= (1 << ADEN); //enable ADC
@@ -502,7 +502,7 @@ int timerTol = 10;//timer tolerance- adjust this if you need
 unsigned int ampTimer = 0;
 byte maxAmp = 0;
 byte checkMaxAmp;
-byte ampThreshold = 14;//raise if you have a very noisy signal
+byte ampThreshold = 25; //raise if you have a very noisy signal
 
 const int MID_POINT = 127; //2.5V
 
@@ -519,6 +519,7 @@ ISR(ADC_vect) {//when new ADC value ready
   
   if (prevData < MID_POINT && newData >= MID_POINT){//if increasing and crossing midpoint
     newSlope = newData - prevData;//calculate slope
+    //Serial.println(newSlope);
     if (abs(newSlope-maxSlope)<slopeTol){//if slopes are ==
       //record new data and reset time
       slope[index] = newSlope;
@@ -570,8 +571,8 @@ ISR(ADC_vect) {//when new ADC value ready
   time++;//increment timer at rate of 38.5kHz
   
   ampTimer++;//increment amplitude timer
-  if (abs(127-ADCH)>maxAmp){
-    maxAmp = abs(127-ADCH);
+  if (abs(MID_POINT-newData)>maxAmp){
+    maxAmp = abs(MID_POINT-newData);
   }
   if (ampTimer==1000){
     ampTimer = 0;
@@ -591,19 +592,20 @@ void reset(){//clean out some variables
 void checkClipping(){//manage clipping indication
   if (clipping){//if currently clipping
     clipping = 0;
+    //Serial.println("clipping");
   }
 }
 // --------------------------------------------------------------- END PHYSICS -----------------------------------------------------------------------------
 
 // --------------------------------------------------------------- MAIN ---------------------------------------------------------------------------------
 // For normalizing huge and short deviations
-const int LONG_FREQ_AR_LEN = 120;
+const int LONG_FREQ_AR_LEN = 60;
 double long_last_frequencies[LONG_FREQ_AR_LEN];
 int long_freq_ar_i = 0;
-const double FREQ_MAX_DIFF = 0.15f;
+const double FREQ_MAX_DIFF = 0.2f;
 
 // For normalizing small short deviations
-const int SHORT_FREQ_AR_LEN = 20;
+const int SHORT_FREQ_AR_LEN = 10;
 double short_last_frequencies[SHORT_FREQ_AR_LEN];
 int short_freq_ar_i = 0;
 
@@ -619,6 +621,25 @@ double get_av(double* ar, int len) {
   return sum/(double)len;
 }
 
+double calculateSD(double* ar, int len)
+{
+    double sum = 0.0, mean, standardDeviation = 0.0;
+
+    int i;
+
+    for(i = 0; i < len; ++i)
+    {
+        sum += ar[i];
+    }
+
+    mean = sum/len;
+
+    for(i = 0; i < len; ++i)
+        standardDeviation += pow(ar[i] - mean, 2);
+
+    return sqrt(standardDeviation / len);
+}
+
 // Print freq + note info
 void printFreqNote(double frequency, const Note* note) {
     Serial.print(frequency);
@@ -627,14 +648,28 @@ void printFreqNote(double frequency, const Note* note) {
     if (currentNote->sharp) Serial.print("#");
     Serial.println();
 }
-
+float short_average_freq;
 void loop(){
   checkClipping();
-
-  if (checkMaxAmp>ampThreshold){
+//Serial.println(checkMaxAmp);
+  if (checkMaxAmp>ampThreshold) /* && checkMaxAmp < maxAmpThreshold) */{
     frequency = 38462.0/float(period);//calculate frequency timer rate/period
+    //frequency = 76924.0/float(period);//calculate frequency timer rate/period
+   // Serial.println(period);
+    //Serial.print("Read freq: ");
+    //Serial.println(frequency);
+
     if (isFreqLegal(frequency)) {
 
+    double sd = calculateSD(long_last_frequencies, LONG_FREQ_AR_LEN);
+//    Serial.print(sd);
+//    Serial.print(" ");
+    Serial.print(frequency);
+    Serial.print(" ");
+    Serial.print(short_average_freq);
+    
+    Serial.println();
+    
       // Ignore noise and big swings
       long_last_frequencies[long_freq_ar_i++] = frequency;
       if (long_freq_ar_i >= LONG_FREQ_AR_LEN) long_freq_ar_i = 0;
@@ -646,11 +681,11 @@ void loop(){
         // get average freq
         short_last_frequencies[short_freq_ar_i++] = frequency;
         if (short_freq_ar_i >= SHORT_FREQ_AR_LEN) short_freq_ar_i = 0;
-        float short_average_freq = get_av(short_last_frequencies, SHORT_FREQ_AR_LEN);
+        short_average_freq = get_av(short_last_frequencies, SHORT_FREQ_AR_LEN);
 
         getNoteByFreq(currentNote, short_average_freq); // RECOGNIZE NOTE
         if (currentNote->valid) {
-          //printFreq(short_average_freq, currentNote);
+          //printFreqNote(short_average_freq, currentNote);
           displ->displayNote(currentNote, short_average_freq); // DISPLAY NOTE
         }
 
